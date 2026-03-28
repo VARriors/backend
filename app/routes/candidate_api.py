@@ -194,88 +194,88 @@ def register_candidate_as_unemployed():
         "questionnaireComplete": completion.get("is_complete", False),
         "missingFields": completion.get("missing_fields", [])
     }), 200
-# def _parse_selected_documents(payload):
-#     raw = payload.get("selected_documents")
-#     if raw is None:
-#         raw = payload.get("selectedDocuments")
+def _parse_selected_documents(payload):
+    raw = payload.get("selected_documents")
+    if raw is None:
+        raw = payload.get("selectedDocuments")
 
-#     if raw is None:
-#         return [], None
+    if raw is None:
+        return [], None
 
-#     normalized = _normalize_string_list(raw)
-#     if normalized is None:
-#         return None, "selectedDocuments must be an array of strings"
+    normalized = _normalize_string_list(raw)
+    if normalized is None:
+        return None, "selectedDocuments must be an array of strings"
 
-#     invalid = [item for item in normalized if item not in ALLOWED_DOCUMENT_TYPES]
-#     if invalid:
-#         return None, f"Invalid selected document types: {', '.join(invalid)}"
+    invalid = [item for item in normalized if item not in ALLOWED_DOCUMENT_TYPES]
+    if invalid:
+        return None, f"Invalid selected document types: {', '.join(invalid)}"
 
-#     return normalized, None
-
-
-# def _merge_unique_strings(*values_lists):
-#     seen = set()
-#     merged = []
-#     for values in values_lists:
-#         if not isinstance(values, list):
-#             continue
-#         for value in values:
-#             if not isinstance(value, str):
-#                 continue
-#             normalized = value.strip().lower()
-#             if not normalized or normalized in seen:
-#                 continue
-#             seen.add(normalized)
-#             merged.append(normalized)
-#     return merged
+    return normalized, None
 
 
-# def _attach_selected_documents(application_ref, candidate_id, selected_documents):
-#     attached_count = 0
-#     for document_type in selected_documents:
-#         append_application_document(
-#             application_ref=application_ref,
-#             document_type=document_type,
-#             actor_role="candidate",
-#             actor_id=candidate_id,
-#             idempotency_key=f"apply-doc-{document_type}",
-#             verification_status="verified",
-#             provider="mobywatel",
-#             note="Attached during one-click apply",
-#             metadata={"origin": "candidate_apply"},
-#         )
-#         attached_count += 1
-#     return attached_count
+def _merge_unique_strings(*values_lists):
+    seen = set()
+    merged = []
+    for values in values_lists:
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            if not isinstance(value, str):
+                continue
+            normalized = value.strip().lower()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            merged.append(normalized)
+    return merged
 
 
-# def _serialize_candidate_application(app_doc, job_doc=None):
-#     payload = {
-#         "applicationId": str(app_doc.get("_id")),
-#         "candidateId": app_doc.get("candidate_id"),
-#         "employerId": app_doc.get("employer_id"),
-#         "jobId": app_doc.get("job_id"),
-#         "status": app_doc.get("status", "SENT"),
-#         "createdAt": app_doc.get("created_at"),
-#         "updatedAt": app_doc.get("updated_at"),
-#         "selectedDocuments": app_doc.get("selected_documents", []),
-#     }
+def _attach_selected_documents(application_ref, candidate_id, selected_documents):
+    attached_count = 0
+    for document_type in selected_documents:
+        append_application_document(
+            application_ref=application_ref,
+            document_type=document_type,
+            actor_role="candidate",
+            actor_id=candidate_id,
+            idempotency_key=f"apply-doc-{document_type}",
+            verification_status="verified",
+            provider="mobywatel",
+            note="Attached during one-click apply",
+            metadata={"origin": "candidate_apply"},
+        )
+        attached_count += 1
+    return attached_count
 
-#     if job_doc:
-#         payload["job"] = {
-#             "id": str(job_doc.get("_id")) if job_doc.get("_id") else job_doc.get("id"),
-#             "title": job_doc.get("title"),
-#             "company": job_doc.get("company"),
-#             "location": job_doc.get("location"),
-#             "category": job_doc.get("category"),
-#         }
 
-#     payload["ledger"] = {
-#         "applicationRef": app_doc.get("ledger_application_ref"),
-#         "applicationCommitment": app_doc.get("ledger_application_commitment"),
-#         "latestStatus": app_doc.get("ledger_latest_status") or app_doc.get("status", "SENT"),
-#     }
+def _serialize_candidate_application(app_doc, job_doc=None):
+    payload = {
+        "applicationId": str(app_doc.get("_id")),
+        "candidateId": app_doc.get("candidate_id"),
+        "employerId": app_doc.get("employer_id"),
+        "jobId": app_doc.get("job_id"),
+        "status": app_doc.get("status", "SENT"),
+        "createdAt": app_doc.get("created_at"),
+        "updatedAt": app_doc.get("updated_at"),
+        "selectedDocuments": app_doc.get("selected_documents", []),
+    }
 
-#     return payload
+    if job_doc:
+        payload["job"] = {
+            "id": str(job_doc.get("_id")) if job_doc.get("_id") else job_doc.get("id"),
+            "title": job_doc.get("title"),
+            "company": job_doc.get("company"),
+            "location": job_doc.get("location"),
+            "category": job_doc.get("category"),
+        }
+
+    payload["ledger"] = {
+        "applicationRef": app_doc.get("ledger_application_ref"),
+        "applicationCommitment": app_doc.get("ledger_application_commitment"),
+        "latestStatus": app_doc.get("ledger_latest_status") or app_doc.get("status", "SENT"),
+    }
+
+    return payload
 
 
 # @candidate_api_bp.route('/context', methods=['GET'])
@@ -528,6 +528,7 @@ def update_candidate_preferences():
 
 
 @candidate_api_bp.route('/apply', methods=['POST'])
+@candidate_api_bp.route('/applications', methods=['POST'])
 def apply_to_job_offer():
     payload = request.json or {}
     candidate_id = _extract_candidate_id(payload)
@@ -724,9 +725,21 @@ def list_candidate_applications():
             "error": "candidateId is required (query param or X-Candidate-Id header)"
         }), 400
 
+    requested_job_id = request.args.get("jobId") or request.args.get("job_id")
+    normalized_job_id = None
+    if isinstance(requested_job_id, str) and requested_job_id.strip():
+        resolved_job = _resolve_job(requested_job_id)
+        if not resolved_job:
+            return jsonify({"error": "Job not found"}), 404
+        normalized_job_id = _normalize_job_id(resolved_job, requested_job_id.strip())
+
+    mongo_filter = {"candidate_id": candidate_id}
+    if normalized_job_id:
+        mongo_filter["job_id"] = normalized_job_id
+
     app_docs = list(
         applications_collection
-        .find({"candidate_id": candidate_id})
+        .find(mongo_filter)
         .sort("created_at", -1)
     )
 
@@ -750,6 +763,7 @@ def list_candidate_applications():
 
     return jsonify({
         "candidateId": candidate_id,
+        "jobId": normalized_job_id,
         "items": response_items,
         "total": len(response_items),
     }), 200

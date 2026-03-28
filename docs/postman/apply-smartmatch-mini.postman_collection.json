@@ -1,0 +1,269 @@
+{
+  "info": {
+    "name": "mPraca - Apply + SmartMatch (Mini)",
+    "description": "Mini kolekcja do szybkiego testu flow: aplikacja na oferte + listing aplikacji + smartmatch kandydat/oferta.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "f7de3fc1-d76a-4f52-98b6-7d7ef17bd67c"
+  },
+  "item": [
+    {
+      "name": "1. Apply To Job (POST /api/candidate/applications)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"candidateId\": \"{{candidate_id}}\",\n  \"jobId\": \"{{job_id}}\",\n  \"employerId\": \"{{employer_id}}\",\n  \"selectedDocuments\": [\"driving_license\"]\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/candidate/applications",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "candidate",
+            "applications"
+          ]
+        },
+        "description": "Tworzy aplikacje lub zwraca istniejaca aplikacje (idempotent-like po unikalnym candidate/employer/job)."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 200 or 201', function () {",
+              "  pm.expect([200, 201]).to.include(pm.response.code);",
+              "});",
+              "",
+              "const data = pm.response.json();",
+              "pm.test('Has applicationId', function () {",
+              "  pm.expect(data.applicationId).to.be.a('string').and.not.empty;",
+              "});",
+              "",
+              "if (data.applicationId) {",
+              "  pm.collectionVariables.set('application_id', data.applicationId);",
+              "}",
+              "",
+              "if (data.jobId) {",
+              "  pm.collectionVariables.set('job_id', data.jobId);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. List Candidate Applications (GET /api/candidate/applications)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Candidate-Id",
+            "value": "{{candidate_id}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/candidate/applications",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "candidate",
+            "applications"
+          ]
+        },
+        "description": "Lista aplikacji kandydata. Candidate id przez naglowek."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "",
+              "const data = pm.response.json();",
+              "pm.test('Contains items array', function () {",
+              "  pm.expect(data.items).to.be.an('array');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. List Candidate Applications By Job (GET /api/candidate/applications?jobId=...)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Candidate-Id",
+            "value": "{{candidate_id}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/candidate/applications?jobId={{job_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "candidate",
+            "applications"
+          ],
+          "query": [
+            {
+              "key": "jobId",
+              "value": "{{job_id}}"
+            }
+          ]
+        },
+        "description": "Lista aplikacji kandydata przefiltrowana dla jednej oferty pracy."
+      }
+    },
+    {
+      "name": "4. Candidate Application Details (GET /api/candidate/applications/:application_id)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Candidate-Id",
+            "value": "{{candidate_id}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/candidate/applications/{{application_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "candidate",
+            "applications",
+            "{{application_id}}"
+          ]
+        },
+        "description": "Szczegoly pojedynczej aplikacji kandydata wraz ze skrotem timeline z ledgera."
+      }
+    },
+    {
+      "name": "5. Candidate SmartMatch (GET /api/matching/candidate/:candidate_id)",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{base_url}}/api/matching/candidate/{{candidate_id}}?limit=10",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "matching",
+            "candidate",
+            "{{candidate_id}}"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "10"
+            }
+          ]
+        },
+        "description": "Smartmatch oferty dla kandydata."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "",
+              "const data = pm.response.json();",
+              "pm.test('Contains matches array', function () {",
+              "  pm.expect(data.matches).to.be.an('array');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Employer SmartMatch For Job (GET /api/matching/employer/:job_id)",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{base_url}}/api/matching/employer/{{job_id}}?limit=10",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "matching",
+            "employer",
+            "{{job_id}}"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "10"
+            }
+          ]
+        },
+        "description": "Smartmatch kandydatow pod konkretna oferte (priorytet: ci, ktorzy juz aplikowali)."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "",
+              "const data = pm.response.json();",
+              "pm.test('Contains matches array', function () {",
+              "  pm.expect(data.matches).to.be.an('array');",
+              "});"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:5000"
+    },
+    {
+      "key": "candidate_id",
+      "value": "PUT_CANDIDATE_OBJECT_ID"
+    },
+    {
+      "key": "employer_id",
+      "value": "PUT_EMPLOYER_ID"
+    },
+    {
+      "key": "job_id",
+      "value": "PUT_JOB_OBJECT_ID"
+    },
+    {
+      "key": "application_id",
+      "value": ""
+    }
+  ]
+}
