@@ -6,34 +6,22 @@ matching_bp = Blueprint('matching', __name__)
 cv_collection = db['cvs']
 jobs_collection = db['jobs']
 
-@matching_bp.route('/<candidate_id>', methods=['GET'])
+@matching_bp.route('/candidate/<candidate_id>', methods=['GET'])
 def get_matches_for_candidate(candidate_id):
     cv = cv_collection.find_one({"user_id": candidate_id})
     if not cv:
-        return jsonify({"message": "Brak CV dla kandydata. Utwórz by zacząć matching."}), 404
+        return jsonify({"message": "Brak CV dla kandydata."}), 404
 
-    candidate_skills = cv.get('skills', [])
-    
-    if candidate_skills:
-        potential_jobs = list(jobs_collection.find({"required_skills": {"$in": candidate_skills}}).limit(10))
-        if not potential_jobs:
-             potential_jobs = list(jobs_collection.find({}).limit(10))
-    else:
-        potential_jobs = list(jobs_collection.find({}).limit(10))
+    potential_jobs = list(jobs_collection.find({}).limit(5))
 
     evaluated_jobs = []
     for job in potential_jobs:
         job['_id'] = str(job['_id'])
-        if job.get('criteria'):
-             evaluation_result = evaluate_match_with_llm(cv, job)
-             job['match_score'] = evaluation_result['final_match_percentage']
-             job['evaluation_details'] = evaluation_result
-        else:
-             job['match_score'] = 50 
-             job['evaluation_details'] = {"message": "Oferta bez zdefiniowanych kryteriów."}
+        evaluation = evaluate_match_with_llm(cv, job)
+        job['smart_match'] = evaluation
         evaluated_jobs.append(job)
 
-    evaluated_jobs.sort(key=lambda x: x.get('match_score', 0), reverse=True)
+    evaluated_jobs.sort(key=lambda x: x['smart_match']['final_match_percentage'], reverse=True)
 
     return jsonify({
         "candidate": candidate_id,
@@ -51,23 +39,16 @@ def get_matches_for_job(job_id):
     if not job:
          return jsonify({"message": "Nie znaleziono oferty pracy."}), 404
 
-    potential_cvs = list(cv_collection.find({}).limit(15))
+    potential_cvs = list(cv_collection.find({}).limit(5))
     
     evaluated_candidates = []
     for cv in potential_cvs:
         cv['_id'] = str(cv['_id'])
-        
-        if job.get('criteria'):
-             evaluation_result = evaluate_match_with_llm(cv, job)
-             cv['match_score'] = evaluation_result['final_match_percentage']
-             cv['evaluation_details'] = evaluation_result
-        else:
-             cv['match_score'] = 50
-             cv['evaluation_details'] = {"message": "Oferta bez zdefiniowanych kryteriów."}
-             
+        evaluation = evaluate_match_with_llm(cv, job)
+        cv['smart_match'] = evaluation
         evaluated_candidates.append(cv)
 
-    evaluated_candidates.sort(key=lambda x: x.get('match_score', 0), reverse=True)
+    evaluated_candidates.sort(key=lambda x: x['smart_match']['final_match_percentage'], reverse=True)
 
     return jsonify({
         "job_id": job_id,
