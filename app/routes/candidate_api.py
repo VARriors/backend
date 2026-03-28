@@ -87,6 +87,20 @@ def _get_candidate_doc(candidate_id):
     return candidates_collection.find_one({"_id": object_id})
 
 
+def _candidate_employment_payload(candidate_doc):
+    status = None
+    if isinstance(candidate_doc, dict):
+        raw_status = candidate_doc.get("employment_status")
+        if isinstance(raw_status, str) and raw_status.strip():
+            status = raw_status.strip().lower()
+
+    return {
+        "employmentStatus": status,
+        "isRegisteredAsUnemployed": status == "unemployed",
+        "registeredAsUnemployedAt": candidate_doc.get("registered_as_unemployed_at") if isinstance(candidate_doc, dict) else None,
+    }
+
+
 def _sync_cv_questionnaire_state(candidate_id, questionnaire):
     completion = questionnaire_completion(questionnaire)
     cv_collection.update_one(
@@ -233,6 +247,42 @@ def get_candidate_context():
         },
         "questionnaireComplete": completion["is_complete"],
         "missingFields": completion["missing_fields"],
+        **_candidate_employment_payload(candidate_doc),
+    }), 200
+
+
+@candidate_api_bp.route('/register-unemployed', methods=['POST'])
+def register_candidate_as_unemployed():
+    payload = request.json or {}
+    candidate_id = _extract_candidate_id(payload)
+    if not candidate_id:
+        return jsonify({
+            "error": "candidateId is required (query param, X-Candidate-Id header, or payload)"
+        }), 400
+
+    candidate_doc = _get_candidate_doc(candidate_id)
+    if not candidate_doc:
+        return jsonify({"error": "Candidate not found"}), 404
+
+    object_id = parse_object_id(candidate_id)
+    timestamp = now_iso()
+    candidates_collection.update_one(
+        {"_id": object_id},
+        {
+            "$set": {
+                "employment_status": "unemployed",
+                "registered_as_unemployed_at": timestamp,
+                "updated_at": timestamp,
+            }
+        },
+    )
+
+    refreshed_doc = _get_candidate_doc(candidate_id)
+
+    return jsonify({
+        "message": "Registered as unemployed",
+        "candidateId": candidate_id,
+        **_candidate_employment_payload(refreshed_doc),
     }), 200
 
 @candidate_api_bp.route('/cv/status', methods=['GET'])
