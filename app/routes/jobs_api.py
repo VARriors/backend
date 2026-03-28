@@ -100,6 +100,14 @@ def list_jobs():
         },
     }), 200
 
+# @jobs_api_bp.route('/jobs', methods=['POST'])
+# def post_jobs():
+#     new_offer = request.json
+#     if not new_offer or 'title' not in new_offer:
+#         return jsonify({"error": "Missing title in payload"}), 400
+            
+#     result = jobs_collection.insert_one(new_offer)
+#     return jsonify({"message": "Job offer created", "id": str(result.inserted_id)}), 201
 
 @jobs_api_bp.route('/jobs/<job_id>/cv-requirement', methods=['GET'])
 def get_job_cv_requirement(job_id):
