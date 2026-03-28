@@ -26,5 +26,85 @@ def init_db():
     db['candidates'].insert_one(candidate)
     print(f"Kandydat {candidate_id} został dodany do bazy.")
 
+    # Dodajemy przykładowe oferty pracy z pełnymi danymi
+    db['jobs'].delete_many({})
+    
+    jobs = [
+        {
+            "title": "Kucharz",
+            "company": "Restauracja Smak",
+            "location": "Warszawa, Mazowieckie",
+            "category": "Gastronomia",
+            "description": "Przygotowywanie wysokiej jakości dań kuchni polskiej i europejskiej, dbanie o standardy serwowania oraz współpraca z zespołem pomocniczym.",
+            "salary_range": "6000 - 8000 PLN brutto",
+            "employment_type": "Umowa o pracę",
+            "work_time": "Pełny etat",
+            "work_mode": "Stacjonarna",
+            "position_level": "Mid",
+            "min_experience": "2 lata",
+            "min_education": "Zawodowe",
+            "languages": ["polski", "angielski"],
+            "expectations": "Pasja do gotowania, znajomość norm HACCP oraz wysoka kultura osobista i punktualność.",
+            "responsibilities": ["Przygotowywanie dań zgodnie z recepturą", "Dbanie o stan techniczny urządzeń kuchennych", "Nadzór nad gospodarką magazynową"],
+            "benefits": ["Prywatna opieka medyczna", "Posiłki pracownicze", "Premie uznaniowe"],
+            "tags": ["kuchnia polska", "HACCP"],
+            "application_deadline": "2024-05-30",
+            "requires_cv": False,
+            "created_at": now_iso()
+        },
+        {
+            "title": "Sprzedawca - Kasjer",
+            "company": "Market Polka",
+            "location": "Kraków, Małopolskie",
+            "category": "Sprzedaż",
+            "description": "Bezpośrednia obsługa klientów, dbanie o estetykę ekspozycji towarów oraz zapewnienie pozytywnego wizerunku sklepu.",
+            "salary_range": "4500 - 5500 PLN brutto",
+            "employment_type": "Umowa zlecenie",
+            "work_time": "½ etatu",
+            "work_mode": "Stacjonarna",
+            "position_level": "Junior",
+            "min_experience": "Brak",
+            "min_education": "Średnie",
+            "languages": ["polski"],
+            "expectations": "Komunikatywność, zaangażowanie w powierzone zadania oraz gotowość do pracy zmianowej.",
+            "responsibilities": ["Obsługa kasy fiskalnej", "Rozkładanie towaru", "Pomoc klientom"],
+            "benefits": ["Elastyczny grafik", "Zniżki pracownicze"],
+            "tags": ["handel", "obsługa klienta"],
+            "application_deadline": "2024-04-15",
+            "requires_cv": True,
+            "cv_required_reason": "Wymagane doświadczenie w obsłudze klienta",
+            "created_at": now_iso()
+        }
+    ]
+    
+    db['jobs'].insert_many(jobs)
+    print(f"Dodano {len(jobs)} przykładowych ofert pracy.")
+
+    # Dodajemy przykładowe aplikacje
+    db['applications'].delete_many({})
+    
+    # Pobieramy kucharza i sprzedawcę
+    cook_job = db['jobs'].find_one({"title": "Kucharz"})
+    cashier_job = db['jobs'].find_one({"title": "Sprzedawca - Kasjer"})
+    
+    if cook_job and cashier_job:
+        applications = [
+            {
+                "candidate_id": str(candidate_id),
+                "employer_id": "mock-employer-1",
+                "job_id": str(cook_job['_id']),
+                "status": "UNREAD",
+                "created_at": now_iso(),
+                "updated_at": now_iso()
+            }
+        ]
+        
+        # Dodajemy kucharzowi przypisanie do mock-employer-1
+        db['jobs'].update_one({"_id": cook_job['_id']}, {"$set": {"employer_id": "mock-employer-1"}})
+        db['jobs'].update_one({"_id": cashier_job['_id']}, {"$set": {"employer_id": "mock-employer-1"}})
+        
+        db['applications'].insert_many(applications)
+        print(f"Dodano {len(applications)} przykładowych aplikacji.")
+
 if __name__ == "__main__":
     init_db()
