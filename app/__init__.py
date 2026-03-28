@@ -8,16 +8,18 @@ load_dotenv()
 
 mongo_client, db = init_mongo()
 
+from app.routes.candidates import candidates_bp
+from app.routes.candidate_questionnaire import candidate_questionnaire_bp
+from app.routes.employers import employers_bp
+from app.routes.matching import matching_bp
+from app.routes.candidate_api import candidate_api_bp
+from app.routes.jobs_api import jobs_api_bp
+from app.routes.ledger import ledger_bp
+
+
 def create_app():
     app = Flask(__name__)
     CORS(app)
-
-    from app.routes.candidates import candidates_bp
-    from app.routes.candidate_questionnaire import candidate_questionnaire_bp
-    from app.routes.employers import employers_bp
-    from app.routes.ledger import ledger_bp
-    from app.routes.matching import matching_bp
-    from app.routes.candidate_api import candidate_api_bp
 
     app.register_blueprint(candidates_bp, url_prefix='/api/candidates')
     app.register_blueprint(candidate_questionnaire_bp, url_prefix='/api/candidates')
