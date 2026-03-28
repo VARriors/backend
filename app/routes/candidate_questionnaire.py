@@ -1,4 +1,5 @@
 from flask import Blueprint, jsonify, request
+from bson.objectid import ObjectId
 
 from app import db
 from app.services.candidate_questionnaire_service import (
@@ -6,6 +7,7 @@ from app.services.candidate_questionnaire_service import (
     apply_updates,
     build_cv_gate_status,
     get_or_create_questionnaire,
+    now_iso,
     parse_object_id,
     questionnaire_completion,
 )
@@ -184,3 +186,45 @@ def get_cv_status(candidate_id):
     candidate = candidates_collection.find_one({"_id": object_id}) if object_id else None
     status = build_cv_gate_status(candidate_id, cv_doc, candidate)
     return jsonify(status), 200
+
+
+@candidate_questionnaire_bp.route('/questionnaire/seed-demo', methods=['POST'])
+def seed_demo_candidate():
+    data = request.json or {}
+    first_name = data.get("first_name", "Jan")
+    last_name = data.get("last_name", "Kowalski")
+    candidate_id = "65f1a2b3c4d5e6f7a8b9c0d1"
+    object_id = ObjectId(candidate_id)
+
+    # Clean existing
+    candidates_collection.delete_one({"_id": object_id})
+    cv_collection.delete_one({"user_id": candidate_id})
+
+    questionnaire = get_or_create_questionnaire(None)
+    questionnaire["fields"]["imie"]["value"] = first_name
+    questionnaire["fields"]["nazwisko"]["value"] = last_name
+
+    candidate = {
+        "_id": object_id,
+        "first_name": first_name,
+        "last_name": last_name,
+        "email": f"{first_name.lower()}.{last_name.lower()}@example.com",
+        "questionnaire": questionnaire,
+        "created_at": now_iso()
+    }
+
+    candidates_collection.insert_one(candidate)
+
+    if data.get("create_cv"):
+        cv_data = {
+            "user_id": candidate_id,
+            "has_cv": True,
+            "created_at": now_iso()
+        }
+        cv_collection.insert_one(cv_data)
+
+    return jsonify({
+        "message": "Demo candidate seeded",
+        "candidate_id": candidate_id,
+        "questionnaire": questionnaire
+    }), 201
