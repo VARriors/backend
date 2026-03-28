@@ -1,4 +1,6 @@
 from flask import Blueprint, jsonify, request
+from bson.errors import InvalidId
+from bson.objectid import ObjectId
 
 from app import db
 
@@ -91,3 +93,17 @@ def list_jobs():
             "company": company or None,
         },
     }), 200
+
+@jobs_api_bp.route('/jobs/<job_id>', methods=['GET'])
+def get_job(job_id):
+    try:
+        obj_id = ObjectId(job_id)
+    except InvalidId:
+        return jsonify({"error": "Invalid job ID format"}), 400
+
+    job_doc = jobs_collection.find_one({"_id": obj_id})
+    if not job_doc:
+        return jsonify({"error": "Job offer not found"}), 404
+
+    return jsonify(_serialize_job(job_doc)), 200
+
