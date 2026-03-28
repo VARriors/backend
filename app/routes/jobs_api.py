@@ -75,6 +75,7 @@ def list_jobs():
     company = request.args.get('company', '').strip()
     employment_type = request.args.get('employment_type', '').strip()
     work_time = request.args.get('work_time', '').strip()
+    work_mode = request.args.get('work_mode', '').strip()
 
     page = _to_positive_int(request.args.get('page'), default_value=1)
     limit = _to_positive_int(request.args.get('limit'), default_value=20, max_value=100)
@@ -97,6 +98,14 @@ def list_jobs():
         mongo_filter["employment_type"] = employment_type
     if work_time:
         mongo_filter["work_time"] = work_time
+    if work_mode:
+        mongo_filter["$and"] = mongo_filter.get("$and", [])
+        mongo_filter["$and"].append({
+            "$or": [
+                {"work_mode": work_mode},
+                {"workMode": work_mode},
+            ]
+        })
 
     total = jobs_collection.count_documents(mongo_filter)
     cursor = jobs_collection.find(mongo_filter).sort("_id", -1).skip(skip).limit(limit)
@@ -117,6 +126,7 @@ def list_jobs():
             "company": company or None,
             "employment_type": employment_type or None,
             "work_time": work_time or None,
+            "work_mode": work_mode or None,
         },
     }), 200
 
