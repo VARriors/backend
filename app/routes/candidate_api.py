@@ -132,6 +132,13 @@ def _normalize_job_id(job_doc, fallback_job_id):
     return fallback_job_id
 
 
+def _normalize_employer_id(value):
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
 @candidate_api_bp.route('/context', methods=['GET'])
 def get_candidate_context():
     candidate_id = _extract_candidate_id()
@@ -547,7 +554,12 @@ def apply_to_job_offer():
         return jsonify({"error": "Job not found"}), 404
 
     normalized_job_id = _normalize_job_id(job_doc, job_id)
-    employer_id = payload.get("employer_id") or payload.get("employerId") or job_doc.get("employer_id")
+    employer_id = _normalize_employer_id(
+        payload.get("employer_id")
+        or payload.get("employerId")
+        or job_doc.get("employer_id")
+        or job_doc.get("employerId")
+    )
     if not employer_id:
         return jsonify({"error": "employer_id is required (payload or job.employer_id)"}), 400
 
