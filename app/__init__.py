@@ -18,6 +18,9 @@ def create_app():
     from app.routes.ledger import ledger_bp
     from app.routes.matching import matching_bp
     from app.routes.candidate_api import candidate_api_bp
+    from app.routes.jobs_api import jobs_api_bp
+    from app.routes.applications_api import applications_api_bp
+    from app.routes.employer_api import employer_api_bp
 
     app.register_blueprint(candidates_bp, url_prefix='/api/candidates')
     app.register_blueprint(candidate_questionnaire_bp, url_prefix='/api/candidates')
@@ -25,6 +28,9 @@ def create_app():
     app.register_blueprint(ledger_bp, url_prefix='/api/ledger')
     app.register_blueprint(matching_bp, url_prefix='/api/matching')
     app.register_blueprint(candidate_api_bp, url_prefix='/api/candidate')
+    app.register_blueprint(jobs_api_bp, url_prefix='/api')
+    app.register_blueprint(applications_api_bp, url_prefix='/api/applications')
+    app.register_blueprint(employer_api_bp, url_prefix='/api/employer')
 
     @app.route('/', methods=['GET'])
     def index():
