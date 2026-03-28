@@ -27,8 +27,39 @@ Privacy model:
 1. `POST /api/ledger/applications`
 2. `POST /api/ledger/applications/<application_ref>/events`
 3. `GET /api/ledger/applications/<application_ref>/timeline`
-4. `GET /api/ledger/applications/<application_ref>/verify-chain`
-5. `POST /api/ledger/signatures/preview`
+4. `POST /api/ledger/applications/<application_ref>/documents`
+5. `GET /api/ledger/applications/<application_ref>/documents`
+6. `GET /api/ledger/applications/<application_ref>/verify-chain`
+7. `POST /api/ledger/signatures/preview`
+
+### Attach verified document (prototype)
+
+No file upload is stored. Only metadata about the document attachment is persisted.
+
+Request:
+
+```json
+{
+  "document_type": "driving_license",
+  "verification_status": "verified",
+  "provider": "mobywatel",
+  "verified_at": "2026-03-28T11:22:33Z",
+  "valid_until": "2028-03-28T00:00:00Z",
+  "document_reference": "mobyw:dl:abc123",
+  "idempotency_key": "doc-attach-001",
+  "note": "Attached from mObywatel",
+  "metadata": {
+    "origin": "candidate_apply_flow"
+  }
+}
+```
+
+Allowed `document_type` values:
+
+- `disability_statement`
+- `driving_license`
+- `criminal_record`
+- `sanitary_book`
 
 ## Integrated Hooks (apply/viewed/decision)
 
