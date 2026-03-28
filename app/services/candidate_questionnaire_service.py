@@ -14,6 +14,8 @@ FIELD_SOURCE_MAP = {
     "nr_telefonu": "user",
     "email": "user",
     "preferencje": "user",
+    "pref_typ_umowy": "user",
+    "pref_wymiar_etatu": "user",
     "obszar_poszukiwan": "user",
     "jezyki": "user",
     "szkolenia": "user",
@@ -40,6 +42,8 @@ REQUIRED_QUESTIONNAIRE_FIELDS = [
     "nr_telefonu",
     "email",
     "preferencje",
+    "pref_typ_umowy",
+    "pref_wymiar_etatu",
     "obszar_poszukiwan",
     "doswiadczenia_zawodowe",
 ]
@@ -83,6 +87,9 @@ def validate_field_payload(field, value):
     if field in ["preferencje", "jezyki", "szkolenia", "kursy", "certyfikaty"]:
         if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
             return f"Field '{field}' must be an array of strings"
+    if field in ["pref_typ_umowy", "pref_wymiar_etatu"]:
+        if not isinstance(value, str):
+            return f"Field '{field}' must be a string"
     if field == "doswiadczenia_zawodowe" and not isinstance(value, list):
         return "Field 'doswiadczenia_zawodowe' must be an array"
     if field == "cv":

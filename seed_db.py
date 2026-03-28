@@ -13,6 +13,10 @@ def init_db():
     # Wypełniamy kilka pól domyślnie
     questionnaire["fields"]["imie"]["value"] = "Jan"
     questionnaire["fields"]["nazwisko"]["value"] = "Kowalski"
+    questionnaire["fields"]["preferencje"]["value"] = ["Gastronomia"]
+    questionnaire["fields"]["pref_typ_umowy"]["value"] = "Umowa o pracę"
+    questionnaire["fields"]["pref_wymiar_etatu"]["value"] = "Pełny etat"
+    questionnaire["fields"]["obszar_poszukiwan"]["value"] = "Mazowieckie, Warszawa"
     
     candidate = {
         "_id": object_id,
