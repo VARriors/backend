@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, request
 from bson.objectid import ObjectId
+from pymongo.errors import DuplicateKeyError
 
 from app import db
 from app.services.candidate_questionnaire_service import (
@@ -12,13 +13,35 @@ from app.services.candidate_questionnaire_service import (
     parse_object_id,
     questionnaire_completion,
 )
-from app.services.ledger_service import create_application
+from app.services.ledger_service import (
+    ALLOWED_DOCUMENT_TYPES,
+    append_application_document,
+    create_application,
+    get_events,
+)
 
 candidate_api_bp = Blueprint('candidate_api', __name__)
 cv_collection = db['cvs']
 candidates_collection = db['candidates']
 jobs_collection = db['jobs']
 applications_collection = db['applications']
+
+
+def _normalize_string_list(values):
+    if not isinstance(values, list):
+        return None
+
+    output = []
+    seen = set()
+    for value in values:
+        if not isinstance(value, str):
+            return None
+        normalized = value.strip().lower()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        output.append(normalized)
+    return output
 
 
 def _unique_lower_strings(values):
@@ -116,6 +139,121 @@ def get_candidate_context():
         },
         "questionnaireComplete": completion.get("is_complete", False),
         "missingFields": completion.get("missing_fields", [])
+# def _parse_selected_documents(payload):
+#     raw = payload.get("selected_documents")
+#     if raw is None:
+#         raw = payload.get("selectedDocuments")
+
+#     if raw is None:
+#         return [], None
+
+#     normalized = _normalize_string_list(raw)
+#     if normalized is None:
+#         return None, "selectedDocuments must be an array of strings"
+
+#     invalid = [item for item in normalized if item not in ALLOWED_DOCUMENT_TYPES]
+#     if invalid:
+#         return None, f"Invalid selected document types: {', '.join(invalid)}"
+
+#     return normalized, None
+
+
+# def _merge_unique_strings(*values_lists):
+#     seen = set()
+#     merged = []
+#     for values in values_lists:
+#         if not isinstance(values, list):
+#             continue
+#         for value in values:
+#             if not isinstance(value, str):
+#                 continue
+#             normalized = value.strip().lower()
+#             if not normalized or normalized in seen:
+#                 continue
+#             seen.add(normalized)
+#             merged.append(normalized)
+#     return merged
+
+
+# def _attach_selected_documents(application_ref, candidate_id, selected_documents):
+#     attached_count = 0
+#     for document_type in selected_documents:
+#         append_application_document(
+#             application_ref=application_ref,
+#             document_type=document_type,
+#             actor_role="candidate",
+#             actor_id=candidate_id,
+#             idempotency_key=f"apply-doc-{document_type}",
+#             verification_status="verified",
+#             provider="mobywatel",
+#             note="Attached during one-click apply",
+#             metadata={"origin": "candidate_apply"},
+#         )
+#         attached_count += 1
+#     return attached_count
+
+
+# def _serialize_candidate_application(app_doc, job_doc=None):
+#     payload = {
+#         "applicationId": str(app_doc.get("_id")),
+#         "candidateId": app_doc.get("candidate_id"),
+#         "employerId": app_doc.get("employer_id"),
+#         "jobId": app_doc.get("job_id"),
+#         "status": app_doc.get("status", "SENT"),
+#         "createdAt": app_doc.get("created_at"),
+#         "updatedAt": app_doc.get("updated_at"),
+#         "selectedDocuments": app_doc.get("selected_documents", []),
+#     }
+
+#     if job_doc:
+#         payload["job"] = {
+#             "id": str(job_doc.get("_id")) if job_doc.get("_id") else job_doc.get("id"),
+#             "title": job_doc.get("title"),
+#             "company": job_doc.get("company"),
+#             "location": job_doc.get("location"),
+#             "category": job_doc.get("category"),
+#         }
+
+#     payload["ledger"] = {
+#         "applicationRef": app_doc.get("ledger_application_ref"),
+#         "applicationCommitment": app_doc.get("ledger_application_commitment"),
+#         "latestStatus": app_doc.get("ledger_latest_status") or app_doc.get("status", "SENT"),
+#     }
+
+#     return payload
+
+
+# @candidate_api_bp.route('/context', methods=['GET'])
+# def get_candidate_context():
+#     """
+#     Lightweight candidate context endpoint for frontend bootstrap.
+#     Requires X-Candidate-Id header.
+#     """
+#     candidate_id = request.headers.get('X-Candidate-Id')
+#     if not candidate_id:
+#         return jsonify({
+#             "error": "X-Candidate-Id header is required"
+#         }), 400
+
+#     candidate_doc = _get_candidate_doc(candidate_id)
+#     if not candidate_doc:
+#         return jsonify({"error": "Candidate not found"}), 404
+
+#     questionnaire = get_or_create_questionnaire(candidate_doc)
+#     completion = questionnaire_completion(questionnaire)
+
+#     fields = questionnaire.get("fields", {}) if isinstance(questionnaire, dict) else {}
+#     first_name = (fields.get("imie") or {}).get("value")
+#     last_name = (fields.get("nazwisko") or {}).get("value")
+
+#     return jsonify({
+#         "candidateId": candidate_id,
+#         "profile": {
+#             "firstName": first_name,
+#             "lastName": last_name,
+#         },
+#         "questionnaireComplete": completion["is_complete"],
+#         "missingFields": completion["missing_fields"],
     }), 200
 
 @candidate_api_bp.route('/cv/status', methods=['GET'])
@@ -359,6 +497,13 @@ def apply_to_job_offer():
     if not employer_id:
         return jsonify({"error": "employer_id is required (payload or job.employer_id)"}), 400
 
+    selected_documents, documents_error = _parse_selected_documents(payload)
+    if documents_error:
+        return jsonify({
+            "error": documents_error,
+            "allowedDocumentTypes": sorted(ALLOWED_DOCUMENT_TYPES),
+        }), 400
+
     existing = applications_collection.find_one({
         "candidate_id": candidate_id,
         "job_id": normalized_job_id,
@@ -391,6 +536,28 @@ def apply_to_job_offer():
             existing["ledger_claim_token"] = ledger_result["claim_token"]
             existing["status"] = "SENT"
 
+        merged_documents = _merge_unique_strings(existing.get("selected_documents", []), selected_documents)
+        update_payload = {
+            "updated_at": now_iso(),
+            "selected_documents": merged_documents,
+        }
+        if selected_documents:
+            update_payload["selected_documents_updated_at"] = now_iso()
+
+        applications_collection.update_one(
+            {"_id": existing["_id"]},
+            {"$set": update_payload},
+        )
+        existing["selected_documents"] = merged_documents
+
+        documents_attached_count = 0
+        if existing.get("ledger_application_ref") and selected_documents:
+            documents_attached_count = _attach_selected_documents(
+                application_ref=existing["ledger_application_ref"],
+                candidate_id=candidate_id,
+                selected_documents=selected_documents,
+            )
+
         return jsonify({
             "message": "Application already exists",
             "applicationId": str(existing["_id"]),
@@ -398,6 +565,8 @@ def apply_to_job_offer():
             "employerId": employer_id,
             "jobId": normalized_job_id,
             "status": existing.get("status", "SENT"),
+            "selectedDocuments": existing.get("selected_documents", []),
+            "documentsAttachedCount": documents_attached_count,
             "ledger": {
                 "applicationRef": existing.get("ledger_application_ref"),
                 "applicationCommitment": existing.get("ledger_application_commitment"),
@@ -422,13 +591,61 @@ def apply_to_job_offer():
         "status": "SENT",
         "created_at": now_iso(),
         "updated_at": now_iso(),
+        "selected_documents": selected_documents,
+        "selected_documents_updated_at": now_iso() if selected_documents else None,
         "ledger_application_ref": ledger_result["application_ref"],
         "ledger_application_commitment": ledger_result["application_commitment"],
         "ledger_latest_status": "SENT",
         "ledger_claim_token": ledger_result["claim_token"],
     }
 
-    result = applications_collection.insert_one(application_doc)
+    documents_attached_count = 0
+    if selected_documents:
+        documents_attached_count = _attach_selected_documents(
+            application_ref=ledger_result["application_ref"],
+            candidate_id=candidate_id,
+            selected_documents=selected_documents,
+        )
+
+    try:
+        result = applications_collection.insert_one(application_doc)
+    except DuplicateKeyError:
+        existing = applications_collection.find_one({
+            "candidate_id": candidate_id,
+            "job_id": normalized_job_id,
+            "employer_id": employer_id,
+        })
+        if not existing:
+            return jsonify({"error": "Failed to save application due to duplicate key"}), 409
+
+        merged_documents = _merge_unique_strings(existing.get("selected_documents", []), selected_documents)
+        applications_collection.update_one(
+            {"_id": existing["_id"]},
+            {
+                "$set": {
+                    "selected_documents": merged_documents,
+                    "updated_at": now_iso(),
+                    "selected_documents_updated_at": now_iso() if selected_documents else existing.get("selected_documents_updated_at"),
+                }
+            },
+        )
+
+        return jsonify({
+            "message": "Application already exists",
+            "applicationId": str(existing["_id"]),
+            "candidateId": candidate_id,
+            "employerId": employer_id,
+            "jobId": normalized_job_id,
+            "status": existing.get("status", "SENT"),
+            "selectedDocuments": merged_documents,
+            "documentsAttachedCount": documents_attached_count,
+            "ledger": {
+                "applicationRef": existing.get("ledger_application_ref"),
+                "applicationCommitment": existing.get("ledger_application_commitment"),
+                "claimToken": existing.get("ledger_claim_token"),
+            },
+        }), 200
+
     return jsonify({
         "message": "Application created",
         "applicationId": str(result.inserted_id),
@@ -436,9 +653,90 @@ def apply_to_job_offer():
         "employerId": employer_id,
         "jobId": normalized_job_id,
         "status": "SENT",
+        "selectedDocuments": selected_documents,
+        "documentsAttachedCount": documents_attached_count,
         "ledger": {
             "applicationRef": ledger_result["application_ref"],
             "applicationCommitment": ledger_result["application_commitment"],
             "claimToken": ledger_result["claim_token"],
         },
     }), 201
+
+
+@candidate_api_bp.route('/applications', methods=['GET'])
+def list_candidate_applications():
+    candidate_id = _extract_candidate_id()
+    if not candidate_id:
+        return jsonify({
+            "error": "candidateId is required (query param or X-Candidate-Id header)"
+        }), 400
+
+    app_docs = list(
+        applications_collection
+        .find({"candidate_id": candidate_id})
+        .sort("created_at", -1)
+    )
+
+    job_ids = [app_doc.get("job_id") for app_doc in app_docs if isinstance(app_doc.get("job_id"), str)]
+    object_ids = []
+    for job_id in job_ids:
+        try:
+            object_ids.append(ObjectId(job_id))
+        except Exception:
+            continue
+
+    jobs_map = {}
+    if object_ids:
+        for job_doc in jobs_collection.find({"_id": {"$in": object_ids}}):
+            jobs_map[str(job_doc.get("_id"))] = job_doc
+
+    response_items = []
+    for app_doc in app_docs:
+        job_doc = jobs_map.get(app_doc.get("job_id"))
+        response_items.append(_serialize_candidate_application(app_doc, job_doc))
+
+    return jsonify({
+        "candidateId": candidate_id,
+        "items": response_items,
+        "total": len(response_items),
+    }), 200
+
+
+@candidate_api_bp.route('/applications/<application_id>', methods=['GET'])
+def get_candidate_application_details(application_id):
+    candidate_id = _extract_candidate_id()
+    if not candidate_id:
+        return jsonify({
+            "error": "candidateId is required (query param or X-Candidate-Id header)"
+        }), 400
+
+    object_id = parse_object_id(application_id)
+    if not object_id:
+        return jsonify({"error": "Invalid application ID"}), 400
+
+    app_doc = applications_collection.find_one({"_id": object_id})
+    if not app_doc:
+        return jsonify({"error": "Application not found"}), 404
+
+    if app_doc.get("candidate_id") != candidate_id:
+        return jsonify({"error": "Application does not belong to candidate"}), 403
+
+    job_doc = _resolve_job(app_doc.get("job_id"))
+    response_payload = _serialize_candidate_application(app_doc, job_doc)
+
+    ledger_ref = app_doc.get("ledger_application_ref")
+    timeline_summary = None
+    if ledger_ref:
+        events = get_events(ledger_ref)
+        last_event = events[-1] if events else None
+        timeline_summary = {
+            "eventsCount": len(events),
+            "lastEvent": {
+                "statusCode": last_event.get("status_code"),
+                "eventTime": last_event.get("event_time"),
+                "actorRole": last_event.get("actor_role"),
+            } if last_event else None,
+        }
+
+    response_payload["timeline"] = timeline_summary
+    return jsonify(response_payload), 200

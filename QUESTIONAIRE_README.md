@@ -59,6 +59,10 @@ Each field has per-field verification metadata.
 
 ### Endpoints
 
+- `GET /api/candidate/context`
+  - Frontend bootstrap endpoint for candidate identity and completion state.
+  - Requires header: `X-Candidate-Id: <candidate_id>`
+
 - `GET /api/candidates/questionnaire/<candidate_id>`
   - Returns full questionnaire state, source map, and completion status.
 
@@ -119,18 +123,6 @@ Each field has per-field verification metadata.
   - CVGuard-friendly status endpoint.
   - Response contains `has_cv`, `questionnaire_complete`, `missing_fields`, `next_step`.
 
-- `POST /api/candidates/questionnaire/seed-demo`
-  - Creates demo candidate with prefilled questionnaire and optional CV.
-  - Request body (optional):
-
-```json
-{
-  "first_name": "Jan",
-  "last_name": "Kowalski",
-  "create_cv": true
-}
-```
-
 ## Validation Rules
 
 - `pesel`: exactly 11 digits
@@ -141,8 +133,10 @@ Each field has per-field verification metadata.
 
 ## Demo Flow (Quick Test)
 
-1. `POST /api/candidates/questionnaire/seed-demo`
+1. `GET /api/candidate/context` with header `X-Candidate-Id`
 2. `GET /api/candidates/questionnaire/<candidate_id>`
-3. `GET /api/candidates/questionnaire/<candidate_id>/verification-summary`
-4. `GET /api/candidates/cv/status/<candidate_id>`
-5. `GET /api/matching/<candidate_id>`
+3. `PUT /api/candidates/questionnaire/<candidate_id>/mobywatel`
+4. `PUT /api/candidates/questionnaire/<candidate_id>/user-input`
+5. `PUT /api/candidates/questionnaire/<candidate_id>/urzad-pracy`
+6. `GET /api/candidates/questionnaire/<candidate_id>/verification-summary`
+7. `GET /api/candidates/cv/status/<candidate_id>`
