@@ -8,6 +8,7 @@ employers_bp = Blueprint('employers', __name__)
 jobs_collection = db['jobs']
 employers_collection = db['employers']
 applications_collection = db['applications']
+candidates_collection = db['candidates']
 
 
 def _find_application_for_employer(employer_id, application_id):
@@ -78,6 +79,40 @@ def _append_employer_status(app_doc, status_code, idempotency_key, note=None, me
     )
     return ledger_data, event
 
+
+def _resolve_job(job_id):
+    if not isinstance(job_id, str) or not job_id.strip():
+        return None
+
+    clean_job_id = job_id.strip()
+    try:
+        return jobs_collection.find_one({"_id": ObjectId(clean_job_id)})
+    except Exception:
+        return jobs_collection.find_one({"id": clean_job_id})
+
+
+def _safe_candidate_preview(candidate_doc, candidate_id):
+    questionnaire_fields = ((candidate_doc or {}).get("questionnaire") or {}).get("fields") or {}
+    first_name = (
+        (candidate_doc or {}).get("first_name")
+        or ((questionnaire_fields.get("imie") or {}).get("value"))
+    )
+    last_name = (
+        (candidate_doc or {}).get("last_name")
+        or ((questionnaire_fields.get("nazwisko") or {}).get("value"))
+    )
+    email = (
+        (candidate_doc or {}).get("email")
+        or ((questionnaire_fields.get("email") or {}).get("value"))
+    )
+
+    return {
+        "id": candidate_id,
+        "firstName": first_name,
+        "lastName": last_name,
+        "email": email,
+    }
+
 @employers_bp.route('/jobs', methods=['GET', 'POST'])
 def jobs():
     if request.method == 'GET':
@@ -108,6 +143,71 @@ def get_employer_applications(employer_id):
     for a in apps:
         a['_id'] = str(a['_id'])
     return jsonify(apps), 200
+
+
+@employers_bp.route('/applications/<employer_id>/job/<job_id>', methods=['GET'])
+def get_job_applicants(employer_id, job_id):
+    job_doc = _resolve_job(job_id)
+    if not job_doc:
+        return jsonify({"error": "Job not found"}), 404
+
+    job_employer_id = job_doc.get("employer_id")
+    if str(job_employer_id) != str(employer_id):
+        return jsonify({"error": "Job does not belong to employer"}), 403
+
+    normalized_job_id = str(job_doc.get("_id")) if job_doc.get("_id") else str(job_id)
+    app_docs = list(
+        applications_collection
+        .find({
+            "employer_id": employer_id,
+            "job_id": normalized_job_id,
+        })
+        .sort("created_at", -1)
+    )
+
+    candidate_ids = [
+        app_doc.get("candidate_id")
+        for app_doc in app_docs
+        if isinstance(app_doc.get("candidate_id"), str)
+    ]
+    candidate_object_ids = []
+    for candidate_id in candidate_ids:
+        try:
+            candidate_object_ids.append(ObjectId(candidate_id))
+        except Exception:
+            continue
+
+    candidates_map = {}
+    if candidate_object_ids:
+        for candidate_doc in candidates_collection.find({"_id": {"$in": candidate_object_ids}}):
+            candidates_map[str(candidate_doc.get("_id"))] = candidate_doc
+
+    items = []
+    for app_doc in app_docs:
+        candidate_id = app_doc.get("candidate_id")
+        candidate_doc = candidates_map.get(candidate_id)
+        items.append({
+            "applicationId": str(app_doc.get("_id")),
+            "candidateId": candidate_id,
+            "status": app_doc.get("status", "SENT"),
+            "createdAt": app_doc.get("created_at"),
+            "updatedAt": app_doc.get("updated_at"),
+            "selectedDocuments": app_doc.get("selected_documents", []),
+            "candidate": _safe_candidate_preview(candidate_doc, candidate_id),
+        })
+
+    return jsonify({
+        "employerId": employer_id,
+        "job": {
+            "id": normalized_job_id,
+            "title": job_doc.get("title"),
+            "company": job_doc.get("company"),
+            "location": job_doc.get("location"),
+            "category": job_doc.get("category"),
+        },
+        "total": len(items),
+        "items": items,
+    }), 200
 
 
 @employers_bp.route('/applications/<employer_id>/<application_id>/viewed', methods=['PATCH'])
