@@ -382,102 +382,6 @@ def seed_demo_candidate():
 #             {"$set": {"questionnaire": questionnaire, "updated_at": now_iso()}},
 #         )
 
-@candidate_questionnaire_bp.route('/questionnaire/<candidate_id>/cv', methods=['GET'])
-def get_cv_info(candidate_id):
-    """
-    Get CV metadata and extracted data for a candidate.
-
-    Does NOT return the file bytes (use separate download endpoint for that).
-
-    Returns:
-    - file_id, filename, uploaded_at, extraction_status, extracted_data
-    """
-    object_id = parse_object_id(candidate_id)
-    if not object_id:
-        return jsonify({"error": "Invalid candidate ID"}), 400
-
-    candidate = candidates_collection.find_one({"_id": object_id})
-    if not candidate:
-        return jsonify({"error": "Candidate not found"}), 404
-
-    questionnaire = get_or_create_questionnaire(candidate)
-    cv_field = questionnaire.get("fields", {}).get("cv", {})
-
-    if not cv_field or not cv_field.get("value"):
-        return jsonify({"cv": None}), 200
-
-    cv_value = cv_field.get("value", {})
-
-    return jsonify({
-        "cv": {
-            "file_id": cv_value.get("file_id"),
-            "filename": cv_value.get("filename"),
-            "uploaded_at": cv_value.get("uploaded_at"),
-            "extraction_status": cv_value.get("extraction_status"),
-            "extracted_data": cv_value.get("extracted_data"),
-        }
-    }), 200
-
-
-@candidate_questionnaire_bp.route('/questionnaire/<candidate_id>/cv', methods=['DELETE'])
-def delete_cv(candidate_id):
-    """
-    Delete a CV file from GridFS and clear it from the questionnaire.
-
-    Extracted keywords in questionnaire are preserved for reference.
-
-    Returns:
-    - success message
-    """
-    object_id = parse_object_id(candidate_id)
-    if not object_id:
-        return jsonify({"error": "Invalid candidate ID"}), 400
-
-    candidate = candidates_collection.find_one({"_id": object_id})
-    if not candidate:
-        return jsonify({"error": "Candidate not found"}), 404
-
-    questionnaire = get_or_create_questionnaire(candidate)
-    cv_field = questionnaire.get("fields", {}).get("cv", {})
-
-    if not cv_field or not cv_field.get("value"):
-        return jsonify({
-            "message": "No CV found for this candidate",
-            "candidate_id": candidate_id,
-        }), 200
-
-    cv_value = cv_field.get("value", {})
-    file_id = cv_value.get("file_id")
-
-    if file_id:
-        # Best-effort delete from GridFS; questionnaire cleanup below is always applied.
-        delete_cv_file(file_id)
-
-    # Keep schema stable: clear value instead of removing field entirely.
-    fields = questionnaire.setdefault("fields", {})
-    fields["cv"] = {
-        "value": None,
-        "verification": {
-            "source": "user",
-            "status": "unverified",
-            "verified_by": None,
-            "verified_at": None,
-            "note": None,
-        },
-    }
-    questionnaire["updated_at"] = now_iso()
-
-    candidates_collection.update_one(
-        {"_id": object_id},
-        {"$set": {"questionnaire": questionnaire, "updated_at": now_iso()}},
-    )
-
-    return jsonify({
-        "message": "CV deleted successfully",
-        "candidate_id": candidate_id,
-        "questionnaire": questionnaire
-    }), 201
-
 @candidate_questionnaire_bp.route('/questionnaire/<candidate_id>/cv', methods=['GET', 'DELETE'])
 def candidate_cv_operations(candidate_id):
     object_id = parse_object_id(candidate_id)
@@ -492,7 +396,7 @@ def candidate_cv_operations(candidate_id):
             
         return jsonify({
             "cv": {
-                "file_id": str(cv_doc.get("_id", "")),
+                "file_id": str(cv_doc.get("file_id") or cv_doc.get("_id", "")),
                 "filename": cv_doc.get("filename", "cv.pdf"),
                 "uploaded_at": cv_doc.get("created_at"),
                 "extraction_status": cv_doc.get("extraction_status", "success" if cv_doc.get("has_cv") else "pending"),
@@ -518,80 +422,80 @@ def candidate_cv_upload_form(candidate_id):
     if file.filename == '':
         return jsonify({"error": "Empty filename"}), 400
 
-    # Hackathon stub for extraction
-    extracted = {
-        "email": "jan.kowalski@example.com",
-        "phone": "123456789",
-        "languages": [{"jezyk": "Angielski", "poziom": "B2"}],
-        "skills": ["Python", "JavaScript"]
-    }
-    
+    # Basic validation: only accept PDF up to 5MB
+    if not file.filename.lower().endswith('.pdf'):
+        return jsonify({"error": "Only PDF files are supported"}), 400
+
+    file.seek(0, 2)  # end
+    file_size = file.tell()
+    file.seek(0)
+
+    if file_size > 5 * 1024 * 1024:
+        return jsonify({"error": "File size exceeds 5MB limit"}), 400
+
+    file_bytes = file.read()
+
+    try:
+        cv_result = process_cv_file(file_bytes, file.filename, candidate_id)
+    except Exception as exc:  # pragma: no cover - defensive
+        return jsonify({"error": f"Failed to process CV: {exc}"}), 500
+
     cv_doc = {
         "user_id": candidate_id,
+        "file_id": cv_result.get("file_id"),
         "filename": file.filename,
         "has_cv": True,
-        "extraction_status": "success",
-        "extracted_data": extracted,
-        "created_at": now_iso()
+        "extraction_status": cv_result.get("extraction_status"),
+        "extracted_data": cv_result.get("extracted_data"),
+        "created_at": now_iso(),
     }
-    
-    # upsert
+
     cv_collection.update_one(
         {"user_id": candidate_id},
         {"$set": cv_doc},
-        upsert=True
+        upsert=True,
     )
-    
-    inserted_doc = cv_collection.find_one({"user_id": candidate_id})
 
     return jsonify({
-        "file_id": str(inserted_doc.get("_id", "")),
-        "extraction_status": "success",
-        "extracted_data": extracted
+        "file_id": cv_result.get("file_id"),
+        "extraction_status": cv_result.get("extraction_status"),
+        "extracted_data": cv_result.get("extracted_data"),
+        "error": cv_result.get("error"),
     }), 200
 
-#     }), 200
 
+@candidate_questionnaire_bp.route('/questionnaire/<candidate_id>/cv-file/<file_id>', methods=['GET'])
+def download_cv(candidate_id, file_id):
+    """Stream CV PDF file stored in GridFS for the given candidate."""
+    from app.services.cv_service import get_cv_file
 
-# @candidate_questionnaire_bp.route('/questionnaire/<candidate_id>/cv-file/<file_id>', methods=['GET'])
-# def download_cv(candidate_id, file_id):
-#     """
-#     Download a CV file from GridFS.
+    object_id = parse_object_id(candidate_id)
+    if not object_id:
+        return jsonify({"error": "Invalid candidate ID"}), 400
 
-#     Args:
-#         candidate_id: Candidate ID (for authorization check)
-#         file_id: GridFS file ID
+    # Ensure the CV belongs to this candidate (supports both new and legacy docs)
+    try:
+        file_object_id = ObjectId(file_id)
+    except Exception:
+        return jsonify({"error": "Invalid file ID"}), 400
 
-#     Returns:
-#         PDF file bytes with appropriate headers
-#     """
-#     from app.services.cv_service import get_cv_file
+    cv_doc = cv_collection.find_one({
+        "$or": [
+            {"user_id": candidate_id, "file_id": file_id},
+            {"user_id": candidate_id, "_id": file_object_id},
+        ]
+    })
 
-#     object_id = parse_object_id(candidate_id)
-#     if not object_id:
-#         return jsonify({"error": "Invalid candidate ID"}), 400
+    if not cv_doc:
+        return jsonify({"error": "CV file not found for this candidate"}), 404
 
-#     candidate = candidates_collection.find_one({"_id": object_id})
-#     if not candidate:
-#         return jsonify({"error": "Candidate not found"}), 404
+    file_bytes = get_cv_file(file_id)
+    if not file_bytes:
+        return jsonify({"error": "File not found in storage"}), 404
 
-#     # Validate that the file belongs to this candidate
-#     questionnaire = get_or_create_questionnaire(candidate)
-#     cv_field = questionnaire.get("fields", {}).get("cv", {})
-#     cv_value = cv_field.get("value", {})
-#     stored_file_id = cv_value.get("file_id")
-
-#     if not stored_file_id or stored_file_id != file_id:
-#         return jsonify({"error": "CV file not found or does not belong to this candidate"}), 404
-
-#     # Retrieve file from GridFS
-#     file_bytes = get_cv_file(file_id)
-#     if not file_bytes:
-#         return jsonify({"error": "File not found in storage"}), 404
-
-#     return send_file(
-#         BytesIO(file_bytes),
-#         mimetype="application/pdf",
-#         as_attachment=False,
-#         download_name=cv_value.get("filename", "cv.pdf"),
-#     )
+    return send_file(
+        BytesIO(file_bytes),
+        mimetype="application/pdf",
+        as_attachment=False,
+        download_name=cv_doc.get("filename", "cv.pdf"),
+    )
