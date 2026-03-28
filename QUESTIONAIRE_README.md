@@ -5,8 +5,17 @@ Flask + MongoDB backend for mPraca demo functionality.
 ## Run Locally
 
 1. Install dependencies: `pip install -r requirements.txt`
-2. Set MongoDB URI (optional): `export MONGO_URI=mongodb://localhost:27017/mpraca`
-3. Start server: `python run.py`
+2. Create env file: copy `.env.example` to `.env`
+3. Set MongoDB config in `.env`:
+  - `MONGO_URI=mongodb://localhost:27017/mpraca`
+  - `MONGO_DB_NAME=mpraca`
+4. Start server: `python run.py`
+
+Windows PowerShell env alternative (without `.env`):
+
+`$env:MONGO_URI="mongodb://localhost:27017/mpraca"`
+
+`$env:MONGO_DB_NAME="mpraca"`
 
 Server runs on `http://127.0.0.1:5000`.
 

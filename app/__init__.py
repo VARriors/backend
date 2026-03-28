@@ -1,8 +1,8 @@
 from flask import Flask
-from pymongo import MongoClient
 from flask_cors import CORS
 from dotenv import load_dotenv
-import os
+
+from app.db import init_mongo
 
 from app.routes.candidates import candidates_bp
 from app.routes.candidate_questionnaire import candidate_questionnaire_bp
@@ -12,9 +12,7 @@ from app.routes.candidate_api import candidate_api_bp
 
 load_dotenv()
 
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/mpraca")
-mongo_client = MongoClient(MONGO_URI)
-db = mongo_client.get_database()
+mongo_client, db = init_mongo()
 
 def create_app():
     app = Flask(__name__)
@@ -23,6 +21,7 @@ def create_app():
     app.register_blueprint(candidates_bp, url_prefix='/api/candidates')
     app.register_blueprint(candidate_questionnaire_bp, url_prefix='/api/candidates')
     app.register_blueprint(employers_bp, url_prefix='/api/employers')
+    app.register_blueprint(ledger_bp, url_prefix='/api/ledger')
     app.register_blueprint(matching_bp, url_prefix='/api/matching')
     app.register_blueprint(candidate_api_bp, url_prefix='/api/candidate')
 
@@ -32,6 +31,16 @@ def create_app():
 
     @app.route('/health', methods=['GET'])
     def health_check():
-        return {"status": "ok", "message": "mMurząd pracy API is running!"}
+        try:
+            mongo_client.admin.command("ping")
+            database_status = "ok"
+        except Exception:
+            database_status = "error"
+
+        return {
+            "status": "ok" if database_status == "ok" else "degraded",
+            "message": "mMurząd pracy API is running!",
+            "database": database_status,
+        }
 
     return app

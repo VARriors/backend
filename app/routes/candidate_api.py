@@ -1,4 +1,6 @@
 from flask import Blueprint, jsonify, request
+from bson.objectid import ObjectId
+
 from app import db
 from app.services.candidate_questionnaire_service import (
     SYSTEM_MOBYWATEL_FIELDS,
@@ -10,10 +12,38 @@ from app.services.candidate_questionnaire_service import (
     parse_object_id,
     questionnaire_completion,
 )
+from app.services.ledger_service import create_application
 
 candidate_api_bp = Blueprint('candidate_api', __name__)
 cv_collection = db['cvs']
 candidates_collection = db['candidates']
+jobs_collection = db['jobs']
+applications_collection = db['applications']
+
+
+def _unique_lower_strings(values):
+    seen = set()
+    output = []
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        normalized = value.strip().lower()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        output.append(normalized)
+    return output
+
+
+def _derive_skills_from_questionnaire(questionnaire):
+    fields = questionnaire.get("fields", {})
+    raw = []
+    for field_name in ["preferencje", "jezyki", "szkolenia", "kursy", "certyfikaty"]:
+        field_payload = fields.get(field_name, {})
+        value = field_payload.get("value") if isinstance(field_payload, dict) else None
+        if isinstance(value, list):
+            raw.extend(value)
+    return _unique_lower_strings(raw)
 
 
 def _extract_candidate_id(payload=None):
@@ -46,6 +76,23 @@ def _sync_cv_questionnaire_state(candidate_id, questionnaire):
             }
         },
     )
+
+
+def _resolve_job(job_id):
+    if not isinstance(job_id, str) or not job_id.strip():
+        return None
+
+    clean_job_id = job_id.strip()
+    try:
+        return jobs_collection.find_one({"_id": ObjectId(clean_job_id)})
+    except Exception:
+        return jobs_collection.find_one({"id": clean_job_id})
+
+
+def _normalize_job_id(job_doc, fallback_job_id):
+    if job_doc and "_id" in job_doc:
+        return str(job_doc["_id"])
+    return fallback_job_id
 
 @candidate_api_bp.route('/cv/status', methods=['GET'])
 def get_candidate_cv_status():
@@ -110,16 +157,12 @@ def generate_candidate_cv():
 
     questionnaire = get_or_create_questionnaire(candidate_doc)
     completion = questionnaire_completion(questionnaire)
-    preferences = questionnaire.get("fields", {}).get("preferencje", {}).get("value") or []
-
-    skills = payload.get("skills")
-    if not isinstance(skills, list) or not all(isinstance(item, str) for item in skills):
-        skills = [str(item).lower() for item in preferences if isinstance(item, str)]
+    skills = _derive_skills_from_questionnaire(questionnaire)
 
     cv_doc = {
         "user_id": candidate_id,
         "source": "generated",
-        "file_name": "cv-government-generated.pdf",
+        "file_name": f"cv-generated-{candidate_id}.pdf",
         "generated_at": now_iso(),
         "updated_at": now_iso(),
         "skills": skills,
@@ -267,3 +310,111 @@ def update_candidate_preferences():
         "missingFields": status["missing_fields"],
         "nextStep": status["next_step"],
     }), 200
+
+
+@candidate_api_bp.route('/apply', methods=['POST'])
+def apply_to_job_offer():
+    payload = request.json or {}
+    candidate_id = _extract_candidate_id(payload)
+    if not candidate_id:
+        return jsonify({
+            "error": "candidateId is required (query param, X-Candidate-Id header, or payload)"
+        }), 400
+
+    candidate_doc = _get_candidate_doc(candidate_id)
+    if not candidate_doc:
+        return jsonify({"error": "Candidate not found"}), 404
+
+    job_id = payload.get("job_id") or payload.get("jobId")
+    job_doc = _resolve_job(job_id)
+    if not job_doc:
+        return jsonify({"error": "Job not found"}), 404
+
+    normalized_job_id = _normalize_job_id(job_doc, job_id)
+    employer_id = payload.get("employer_id") or payload.get("employerId") or job_doc.get("employer_id")
+    if not employer_id:
+        return jsonify({"error": "employer_id is required (payload or job.employer_id)"}), 400
+
+    existing = applications_collection.find_one({
+        "candidate_id": candidate_id,
+        "job_id": normalized_job_id,
+        "employer_id": employer_id,
+    })
+
+    if existing:
+        if not existing.get("ledger_application_ref"):
+            ledger_result = create_application(
+                candidate_id=candidate_id,
+                employer_id=employer_id,
+                job_id=normalized_job_id,
+                metadata={"origin": "candidate_apply_link"},
+            )
+            applications_collection.update_one(
+                {"_id": existing["_id"]},
+                {
+                    "$set": {
+                        "status": "SENT",
+                        "updated_at": now_iso(),
+                        "ledger_application_ref": ledger_result["application_ref"],
+                        "ledger_application_commitment": ledger_result["application_commitment"],
+                        "ledger_latest_status": "SENT",
+                        "ledger_claim_token": ledger_result["claim_token"],
+                    }
+                },
+            )
+            existing["ledger_application_ref"] = ledger_result["application_ref"]
+            existing["ledger_application_commitment"] = ledger_result["application_commitment"]
+            existing["ledger_claim_token"] = ledger_result["claim_token"]
+            existing["status"] = "SENT"
+
+        return jsonify({
+            "message": "Application already exists",
+            "applicationId": str(existing["_id"]),
+            "candidateId": candidate_id,
+            "employerId": employer_id,
+            "jobId": normalized_job_id,
+            "status": existing.get("status", "SENT"),
+            "ledger": {
+                "applicationRef": existing.get("ledger_application_ref"),
+                "applicationCommitment": existing.get("ledger_application_commitment"),
+                "claimToken": existing.get("ledger_claim_token"),
+            },
+        }), 200
+
+    ledger_result = create_application(
+        candidate_id=candidate_id,
+        employer_id=employer_id,
+        job_id=normalized_job_id,
+        metadata={
+            "origin": "candidate_apply",
+            "job_title": job_doc.get("title"),
+        },
+    )
+
+    application_doc = {
+        "candidate_id": candidate_id,
+        "employer_id": employer_id,
+        "job_id": normalized_job_id,
+        "status": "SENT",
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+        "ledger_application_ref": ledger_result["application_ref"],
+        "ledger_application_commitment": ledger_result["application_commitment"],
+        "ledger_latest_status": "SENT",
+        "ledger_claim_token": ledger_result["claim_token"],
+    }
+
+    result = applications_collection.insert_one(application_doc)
+    return jsonify({
+        "message": "Application created",
+        "applicationId": str(result.inserted_id),
+        "candidateId": candidate_id,
+        "employerId": employer_id,
+        "jobId": normalized_job_id,
+        "status": "SENT",
+        "ledger": {
+            "applicationRef": ledger_result["application_ref"],
+            "applicationCommitment": ledger_result["application_commitment"],
+            "claimToken": ledger_result["claim_token"],
+        },
+    }), 201
