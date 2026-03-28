@@ -186,6 +186,7 @@ def _evaluate_match_heuristic(candidate_data: Dict[str, Any], job_offer_data: Di
     return {
         "final_match_percentage": round(final_percentage, 2),
         "evaluations": final_evaluations,
+        "summary": "Ocena heurystyczna dla trybu demonstracyjnego. Dokładna analiza wymaga aktywnego modelu AI.",
         "source": "heuristic",
     }
 
@@ -222,8 +223,13 @@ def evaluate_match_with_llm(candidate_data: dict, job_offer_data: dict) -> dict:
 
     prompt = f"""
     Zadanie: Smart Match Kandydat -> Oferta Pracy.
-    Bądź bardzo rygorystyczny i obiektywny. Nie domyślaj się umiejętności, jeżeli nie wynikają jednoznacznie ze zgłoszenia.
-    Oceń jak precyzyjnie kandydat odpowiada na Ofertę na podstawie konkretnych Kryteriów.
+    Wciel się w wyjątkowo wyrozumiałego i optymistycznego rekrutera. Twoim celem jest ZNALEZIENIE POTENCJAŁU kandydata.
+    Nie oceniaj zbyt restrykcyjnie. Nawet jeśli kandydat nie ma "wow" kwalifikacji, ale ma szanse się sprawdzić, daj mu wyższą ocenę.
+    Używaj skali 0.0 do 1.0 (możesz dać np. 0.6 jeśli kandydat jest po prostu "okej", daje radę, ale ma luki).
+    - 0.8 do 1.0: Świetne dopasowanie.
+    - 0.5 do 0.7: Przeciętny kandydat, brakuje mu trochę do ideału, ale "jest okej" i posiada chęci.
+    - 0.3 do 0.4: Słabsze dopasowanie, ale wciąż ma jakiś luźny związek ze stanowiskiem.
+    - 0.0: Stosuj TYLKO wtedy, gdy stanowisko i kandydat to dwa kompletnie inne, wykluczające się światy.
     
     [PROFIL KANDYDATA]:
     {candidate_desc}
@@ -234,8 +240,15 @@ def evaluate_match_with_llm(candidate_data: dict, job_offer_data: dict) -> dict:
     [KRYTERIA DO OCENY (od 0.0 do 1.0)]:
     {criteria_text}
     
-    WYMÓG ZWROTNY: Output wyłącznie jako obiekt JSON z kluczem 'evaluations', przypisujący ocenę i bardzo krótkie ('justification') dla KAŻDEGO ID z listy kryteriów. Przykład:
-    {{"evaluations": [{{"id": 1, "score": 0.8, "justification": "Ma 3 lata stażu w dziale X."}}]}}
+    WYMÓG ZWROTNY: Output wyłącznie jako obiekt JSON z dwoma kluczami:
+    1. 'evaluations': tablica z ocenami i krótkimi uzasadnieniami dla KAŻDEGO ID z listy kryteriów
+    2. 'summary': krótkie podsumowanie (2-3 zdania) dlaczego kandydat pasuje do stanowiska (wymień mocne strony i luki)
+    
+    Przykład:
+    {{
+        "evaluations": [{{"id": 1, "score": 0.8, "justification": "Ma 3 lata stażu w dziale X."}}],
+        "summary": "Kandydat posiada odpowiednie doświadczenie w sprzedaży i obsłudze klientów. Brakuje mu jednak doświadczenia z kasą fiskalną, co może wymagać dodatkowego szkolenia."
+    }}
     """
 
     groq_api_key = os.environ.get("GROQ_API_KEY")
@@ -260,6 +273,7 @@ def evaluate_match_with_llm(candidate_data: dict, job_offer_data: dict) -> dict:
         result_data = json.loads(response_text)
         
         evaluations_from_llm = result_data.get("evaluations", [])
+        summary_from_llm = result_data.get("summary", "Brak podsumowania od modelu AI.")
         eval_map = {item["id"]: item for item in evaluations_from_llm}
         
         total_score = 0
@@ -291,6 +305,7 @@ def evaluate_match_with_llm(candidate_data: dict, job_offer_data: dict) -> dict:
         return {
             "final_match_percentage": round(final_percentage, 2),
             "evaluations": final_evaluations,
+            "summary": summary_from_llm,
             "source": "llm",
         }
             

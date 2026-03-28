@@ -8,7 +8,7 @@ from app.services.llm_match import evaluate_match_with_llm
 matching_bp = Blueprint('matching', __name__)
 cv_collection = db['cvs']
 jobs_collection = db['jobs']
-applications_collection = db['applications']
+applications_collection = db['ledger_applications']
 candidates_collection = db['candidates']
 
 
@@ -120,10 +120,10 @@ def get_matches_for_job(job_id):
     if applicant_ids:
         candidate_cv_docs.extend(list(cv_collection.find({"user_id": {"$in": applicant_ids}}).limit(limit)))
 
-    if len(candidate_cv_docs) < limit:
-        existing_ids = [cv.get("user_id") for cv in candidate_cv_docs]
-        cursor = cv_collection.find({"user_id": {"$nin": existing_ids}}).limit(limit - len(candidate_cv_docs))
-        candidate_cv_docs.extend(list(cursor))
+    # if len(candidate_cv_docs) < limit:
+    #     existing_ids = [cv.get("user_id") for cv in candidate_cv_docs]
+    #     cursor = cv_collection.find({"user_id": {"$nin": existing_ids}}).limit(limit - len(candidate_cv_docs))
+    #     candidate_cv_docs.extend(list(cursor))
 
     applications_by_candidate = {
         app.get("candidate_id"): app
@@ -137,6 +137,7 @@ def get_matches_for_job(job_id):
         if not isinstance(candidate_id, str):
             continue
 
+        print(f"Processing candidate: {candidate_id}")
         evaluation = evaluate_match_with_llm(cv_doc, job_doc)
         app_doc = applications_by_candidate.get(candidate_id)
 
