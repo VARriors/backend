@@ -12,6 +12,7 @@ from app import db
 
 applications_collection = db["ledger_applications"]
 events_collection = db["ledger_events"]
+documents_collection = db["ledger_application_documents"]
 
 ALLOWED_STATUS_CODES = {
     "SENT",
@@ -51,6 +52,18 @@ EMPLOYER_ALLOWED_STATUS_CODES = {
 CANDIDATE_ALLOWED_STATUS_CODES = {
     "WITHDRAWN",
     "DISPUTED",
+}
+
+ALLOWED_DOCUMENT_TYPES = {
+    "disability_statement",
+    "driving_license",
+    "criminal_record",
+    "sanitary_book",
+}
+
+ALLOWED_DOCUMENT_VERIFICATION_STATUSES = {
+    "verified",
+    "declared",
 }
 
 
@@ -148,6 +161,11 @@ def ensure_indexes():
     events_collection.create_index([("application_ref", ASCENDING), ("event_time", ASCENDING)])
     events_collection.create_index([("application_ref", ASCENDING), ("actor_role", ASCENDING), ("actor_id", ASCENDING), ("idempotency_key", ASCENDING)])
 
+    documents_collection.create_index([("application_ref", ASCENDING), ("sequence", ASCENDING)], unique=True)
+    documents_collection.create_index([("application_ref", ASCENDING), ("attached_at", ASCENDING)])
+    documents_collection.create_index([("application_ref", ASCENDING), ("document_type", ASCENDING)])
+    documents_collection.create_index([("application_ref", ASCENDING), ("actor_role", ASCENDING), ("actor_id", ASCENDING), ("idempotency_key", ASCENDING)])
+
 
 def create_application(candidate_id, employer_id, job_id, metadata=None):
     application_ref = generate_application_ref()
@@ -215,6 +233,43 @@ def _last_event(application_ref):
     return events_collection.find_one({"application_ref": application_ref}, sort=[("sequence", -1)])
 
 
+def _last_document(application_ref):
+    return documents_collection.find_one({"application_ref": application_ref}, sort=[("sequence", -1)])
+
+
+def _normalize_document_type(document_type):
+    if not isinstance(document_type, str):
+        return None
+    return document_type.strip().lower()
+
+
+def _normalize_verification_status(verification_status):
+    if not isinstance(verification_status, str):
+        return None
+    return verification_status.strip().lower()
+
+
+def _document_hash_payload(document):
+    return {
+        "application_ref": document["application_ref"],
+        "sequence": document["sequence"],
+        "document_type": document["document_type"],
+        "provider": document["provider"],
+        "verification_status": document["verification_status"],
+        "verified_at": document.get("verified_at"),
+        "valid_until": document.get("valid_until"),
+        "document_reference": document.get("document_reference"),
+        "attached_at": document["attached_at"],
+        "actor_role": document["actor_role"],
+        "actor_id": document["actor_id"],
+        "idempotency_key": document["idempotency_key"],
+        "note": document.get("note"),
+        "metadata": document.get("metadata", {}),
+        "previous_event_hash": document.get("previous_event_hash"),
+        "policy_version": document.get("policy_version", "v1-documents"),
+    }
+
+
 def append_event(application_ref, status_code, actor_role, actor_id, idempotency_key, note=None, metadata=None):
     if status_code not in ALLOWED_STATUS_CODES:
         raise ValueError("Invalid status_code")
@@ -274,6 +329,88 @@ def append_event(application_ref, status_code, actor_role, actor_id, idempotency
 
     event["_id"] = str(result.inserted_id)
     return event
+
+
+def append_application_document(
+    application_ref,
+    document_type,
+    actor_role,
+    actor_id,
+    idempotency_key,
+    verification_status="verified",
+    provider="mobywatel",
+    verified_at=None,
+    valid_until=None,
+    document_reference=None,
+    note=None,
+    metadata=None,
+):
+    normalized_document_type = _normalize_document_type(document_type)
+    if normalized_document_type not in ALLOWED_DOCUMENT_TYPES:
+        raise ValueError("Invalid document_type")
+
+    normalized_verification_status = _normalize_verification_status(verification_status)
+    if normalized_verification_status not in ALLOWED_DOCUMENT_VERIFICATION_STATUSES:
+        raise ValueError("Invalid verification_status")
+
+    if not isinstance(idempotency_key, str) or not idempotency_key.strip():
+        raise ValueError("idempotency_key is required")
+
+    application = get_application(application_ref)
+    if not application:
+        raise LookupError("Application not found")
+
+    existing = documents_collection.find_one({
+        "application_ref": application_ref,
+        "actor_role": actor_role,
+        "actor_id": actor_id,
+        "idempotency_key": idempotency_key,
+    })
+    if existing:
+        existing["_id"] = str(existing["_id"])
+        return existing
+
+    last_document = _last_document(application_ref)
+    sequence = (last_document.get("sequence", 0) + 1) if last_document else 1
+    previous_event_hash = last_document.get("event_hash") if last_document else None
+
+    document_event = {
+        "application_ref": application_ref,
+        "sequence": sequence,
+        "document_type": normalized_document_type,
+        "provider": provider,
+        "verification_status": normalized_verification_status,
+        "verified_at": verified_at,
+        "valid_until": valid_until,
+        "document_reference": document_reference,
+        "attached_at": now_iso(),
+        "actor_role": actor_role,
+        "actor_id": actor_id,
+        "idempotency_key": idempotency_key,
+        "note": note,
+        "metadata": metadata or {},
+        "previous_event_hash": previous_event_hash,
+        "policy_version": "v1-documents",
+    }
+
+    document_event["event_hash"] = sha256_hex(canonical_json(_document_hash_payload(document_event)))
+    result = documents_collection.insert_one(document_event)
+
+    applications_collection.update_one(
+        {"application_ref": application_ref},
+        {
+            "$set": {
+                "updated_at": now_iso(),
+            }
+        },
+    )
+
+    document_event["_id"] = str(result.inserted_id)
+    return document_event
+
+
+def get_application_documents(application_ref):
+    return list(documents_collection.find({"application_ref": application_ref}).sort("sequence", ASCENDING))
 
 
 def verify_event_chain(application_ref):

@@ -7,6 +7,8 @@ from pymongo.errors import ConfigurationError
 DEFAULT_MONGO_URI = "mongodb://localhost:27017/mpraca"
 DEFAULT_DB_NAME = "mpraca"
 
+# Global database instance, set by init_mongo()
+_db = None
 
 def _resolve_database(client, db_name):
     # Prefer DB name from URI. Fallback to explicit env DB name.
@@ -24,6 +26,11 @@ def _resolve_database(client, db_name):
 def _ensure_indexes(database):
     database["cvs"].create_index("user_id", unique=True)
     database["applications"].create_index("employer_id")
+    database["applications"].create_index([
+        ("candidate_id", 1),
+        ("employer_id", 1),
+        ("job_id", 1),
+    ], unique=True)
     database["jobs"].create_index("required_skills")
 
 
@@ -43,4 +50,13 @@ def init_mongo():
         print(f"[DB] MongoDB connection failed: {exc}")
         raise
 
+    global _db
+    _db = database
     return client, database
+
+
+def get_db():
+    """Get the global database instance."""
+    if _db is None:
+        raise RuntimeError("Database not initialized. Call init_mongo() first.")
+    return _db
