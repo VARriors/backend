@@ -1,4 +1,5 @@
-from flask import Blueprint, jsonify, request
+from io import BytesIO
+from flask import Blueprint, jsonify, request, send_file
 from bson.objectid import ObjectId
 
 from app import db
@@ -450,3 +451,47 @@ def delete_cv(candidate_id):
         "message": "CV deleted successfully",
         "candidate_id": candidate_id,
     }), 200
+
+
+@candidate_questionnaire_bp.route('/questionnaire/<candidate_id>/cv-file/<file_id>', methods=['GET'])
+def download_cv(candidate_id, file_id):
+    """
+    Download a CV file from GridFS.
+
+    Args:
+        candidate_id: Candidate ID (for authorization check)
+        file_id: GridFS file ID
+
+    Returns:
+        PDF file bytes with appropriate headers
+    """
+    from app.services.cv_service import get_cv_file
+
+    object_id = parse_object_id(candidate_id)
+    if not object_id:
+        return jsonify({"error": "Invalid candidate ID"}), 400
+
+    candidate = candidates_collection.find_one({"_id": object_id})
+    if not candidate:
+        return jsonify({"error": "Candidate not found"}), 404
+
+    # Validate that the file belongs to this candidate
+    questionnaire = get_or_create_questionnaire(candidate)
+    cv_field = questionnaire.get("fields", {}).get("cv", {})
+    cv_value = cv_field.get("value", {})
+    stored_file_id = cv_value.get("file_id")
+
+    if not stored_file_id or stored_file_id != file_id:
+        return jsonify({"error": "CV file not found or does not belong to this candidate"}), 404
+
+    # Retrieve file from GridFS
+    file_bytes = get_cv_file(file_id)
+    if not file_bytes:
+        return jsonify({"error": "File not found in storage"}), 404
+
+    return send_file(
+        BytesIO(file_bytes),
+        mimetype="application/pdf",
+        as_attachment=False,
+        download_name=cv_value.get("filename", "cv.pdf"),
+    )
