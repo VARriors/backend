@@ -1,8 +1,40 @@
+import argparse
+
 from app import db
 from bson.objectid import ObjectId
 from app.services.candidate_questionnaire_service import build_default_questionnaire, now_iso
 
-def init_db():
+RESET_COLLECTIONS = [
+    "applications",
+    "candidates",
+    "cvs",
+    "employers",
+    "jobs",
+    "ledger_application_documents",
+    "ledger_applications",
+    "ledger_events",
+    "cv_files.files",
+    "cv_files.chunks",
+]
+
+
+def reset_database(full_reset=False):
+    if not full_reset:
+        return
+
+    deleted_counts = {}
+    for collection_name in RESET_COLLECTIONS:
+        result = db[collection_name].delete_many({})
+        deleted_counts[collection_name] = result.deleted_count
+
+    print("Pelny reset bazy wykonany:")
+    for collection_name, deleted_count in deleted_counts.items():
+        print(f"- {collection_name}: usunieto {deleted_count}")
+
+
+def init_db(full_reset=False):
+    reset_database(full_reset=full_reset)
+
     candidate_id = "65f1a2b3c4d5e6f7a8b9c0d1"
     candidate_email = "jan.kowalski@example.com"
     object_id = ObjectId(candidate_id)
@@ -59,7 +91,7 @@ def init_db():
                                  "Dbanie o stan techniczny urządzeń kuchennych", "Nadzór nad gospodarką magazynową"],
             "benefits": ["Prywatna opieka medyczna", "Posiłki pracownicze", "Premie uznaniowe"],
             "tags": ["kuchnia polska", "HACCP"],
-            "application_deadline": "2024-05-30",
+            "application_deadline": "2026-05-30",
             "requires_cv": False,
             "created_at": now_iso()
         },
@@ -81,7 +113,7 @@ def init_db():
             "responsibilities": ["Obsługa kasy fiskalnej", "Rozkładanie towaru", "Pomoc klientom"],
             "benefits": ["Elastyczny grafik", "Zniżki pracownicze"],
             "tags": ["handel", "obsługa klienta"],
-            "application_deadline": "2024-04-15",
+            "application_deadline": "2026-04-15",
             "requires_cv": True,
             "cv_required_reason": "Wymagane doświadczenie w obsłudze klienta",
             "created_at": now_iso()
@@ -104,7 +136,7 @@ def init_db():
             "responsibilities": ["Kompletowanie towaru", "Załadunek i rozładunek", "Dbanie o porządek w magazynie"],
             "benefits": ["Premia frekwencyjna", "Dofinansowanie dojazdów"],
             "tags": ["magazyn", "praca zmianowa"],
-            "application_deadline": "2024-06-15",
+            "application_deadline": "2026-06-15",
             "requires_cv": False,
             "created_at": now_iso()
         }
@@ -131,4 +163,12 @@ def init_db():
 
 
 if __name__ == "__main__":
-    init_db()
+    parser = argparse.ArgumentParser(description="Seed danych demo dla mPraca")
+    parser.add_argument(
+        "--full-reset",
+        action="store_true",
+        help="Usuwa wszystkie dane robocze (w tym ledger i pliki CV) przed seedem",
+    )
+    args = parser.parse_args()
+
+    init_db(full_reset=args.full_reset)
