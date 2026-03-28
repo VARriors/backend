@@ -54,6 +54,3 @@ def get_matches_for_job(job_id):
         "job_id": job_id,
         "matches": evaluated_candidates
     }), 200
-        "required_skills": required_skills,
-        "matched_candidates": matched_cvs,
-    }), 200
