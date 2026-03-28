@@ -1,0 +1,346 @@
+{
+  "info": {
+    "name": "mPraca Ledger Smoke",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "End-to-end smoke flow for apply -> viewed -> decision -> timeline -> chain verification"
+  },
+  "item": [
+    {
+      "name": "1. Candidate Apply",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"candidateId\": \"{{candidate_id}}\",\n  \"job_id\": \"{{job_id}}\",\n  \"employer_id\": \"{{employer_id}}\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/candidate/apply",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "candidate",
+            "apply"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status is 200 or 201', function () {",
+              "  pm.expect([200, 201]).to.include(pm.response.code);",
+              "});",
+              "const json = pm.response.json();",
+              "pm.environment.set('application_id', json.applicationId);",
+              "pm.environment.set('application_ref', json.ledger.applicationRef);",
+              "pm.environment.set('claim_token', json.ledger.claimToken);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Candidate Timeline",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Actor-Role",
+            "value": "candidate"
+          },
+          {
+            "key": "X-Actor-Id",
+            "value": "{{candidate_id}}"
+          },
+          {
+            "key": "X-Claim-Token",
+            "value": "{{claim_token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/ledger/applications/{{application_ref}}/timeline",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "ledger",
+            "applications",
+            "{{application_ref}}",
+            "timeline"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const json = pm.response.json();",
+              "pm.test('Has at least one ledger event', function () {",
+              "  pm.expect(json.events.length).to.be.greaterThan(0);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Signature Preview for VIEWED",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"application_ref\": \"{{application_ref}}\",\n  \"status_code\": \"VIEWED\",\n  \"actor_role\": \"employer\",\n  \"actor_id\": \"{{employer_id}}\",\n  \"idempotency_key\": \"{{viewed_idempotency_key}}\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/ledger/signatures/preview",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "ledger",
+            "signatures",
+            "preview"
+          ]
+        }
+      }
+    },
+    {
+      "name": "4. Employer Mark Viewed",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"idempotency_key\": \"{{viewed_idempotency_key}}\",\n  \"note\": \"Viewed during smoke run\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/employers/applications/{{employer_id}}/{{application_id}}/viewed",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "employers",
+            "applications",
+            "{{employer_id}}",
+            "{{application_id}}",
+            "viewed"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const json = pm.response.json();",
+              "pm.test('Status is VIEWED', function () {",
+              "  pm.expect(json.status).to.eql('VIEWED');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Employer Decision",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"decision\": \"{{decision}}\",\n  \"idempotency_key\": \"{{decision_idempotency_key}}\",\n  \"note\": \"Decision from smoke run\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/employers/applications/{{employer_id}}/{{application_id}}/decision",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "employers",
+            "applications",
+            "{{employer_id}}",
+            "{{application_id}}",
+            "decision"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const json = pm.response.json();",
+              "pm.test('Decision is terminal', function () {",
+              "  pm.expect(['ACCEPTED','REJECTED']).to.include(json.status);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Candidate Timeline (After Decision)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Actor-Role",
+            "value": "candidate"
+          },
+          {
+            "key": "X-Actor-Id",
+            "value": "{{candidate_id}}"
+          },
+          {
+            "key": "X-Claim-Token",
+            "value": "{{claim_token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/ledger/applications/{{application_ref}}/timeline",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "ledger",
+            "applications",
+            "{{application_ref}}",
+            "timeline"
+          ]
+        }
+      }
+    },
+    {
+      "name": "7. Verify Ledger Chain",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Actor-Role",
+            "value": "employer"
+          },
+          {
+            "key": "X-Actor-Id",
+            "value": "{{employer_id}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/ledger/applications/{{application_ref}}/verify-chain",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "ledger",
+            "applications",
+            "{{application_ref}}",
+            "verify-chain"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const json = pm.response.json();",
+              "pm.test('Ledger chain is valid', function () {",
+              "  pm.expect(json.valid).to.eql(true);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:5000"
+    },
+    {
+      "key": "candidate_id",
+      "value": ""
+    },
+    {
+      "key": "employer_id",
+      "value": ""
+    },
+    {
+      "key": "job_id",
+      "value": ""
+    },
+    {
+      "key": "application_id",
+      "value": ""
+    },
+    {
+      "key": "application_ref",
+      "value": ""
+    },
+    {
+      "key": "claim_token",
+      "value": ""
+    },
+    {
+      "key": "decision",
+      "value": "REJECTED"
+    },
+    {
+      "key": "viewed_idempotency_key",
+      "value": "viewed-smoke-001"
+    },
+    {
+      "key": "decision_idempotency_key",
+      "value": "decision-smoke-001"
+    }
+  ]
+}
