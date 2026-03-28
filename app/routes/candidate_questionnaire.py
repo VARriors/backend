@@ -1,16 +1,11 @@
-from bson.objectid import ObjectId
 from flask import Blueprint, jsonify, request
 
 from app import db
 from app.services.candidate_questionnaire_service import (
     FIELD_SOURCE_MAP,
-    SYSTEM_MOBYWATEL_FIELDS,
-    SYSTEM_URZAD_PRACY_FIELDS,
     apply_updates,
     build_cv_gate_status,
-    build_default_questionnaire,
     get_or_create_questionnaire,
-    now_iso,
     parse_object_id,
     questionnaire_completion,
 )
@@ -189,86 +184,3 @@ def get_cv_status(candidate_id):
     candidate = candidates_collection.find_one({"_id": object_id}) if object_id else None
     status = build_cv_gate_status(candidate_id, cv_doc, candidate)
     return jsonify(status), 200
-
-
-@candidate_questionnaire_bp.route('/questionnaire/seed-demo', methods=['POST'])
-def seed_demo_questionnaire():
-    payload = request.json or {}
-    first_name = payload.get("first_name", "Jan")
-    last_name = payload.get("last_name", "Kowalski")
-    create_cv = bool(payload.get("create_cv", True))
-
-    candidate = {
-        "firstName": first_name,
-        "lastName": last_name,
-        "hasSanepid": False,
-        "cleanCriminalRecord": False,
-        "hasDrivingLicense": False,
-        "questionnaire": build_default_questionnaire(),
-        "created_at": now_iso(),
-    }
-
-    result = candidates_collection.insert_one(candidate)
-    candidate_id = str(result.inserted_id)
-
-    mobywatel_fields = {
-        "imie": first_name,
-        "nazwisko": last_name,
-        "pesel": "90010112345",
-        "dowod": "ABC123456",
-        "niepelnosprawnosc": False,
-    }
-    urzad_pracy_fields = {
-        "doswiadczenia_zawodowe": [
-            {
-                "stanowisko": "Mlodszy specjalista ds. obslugi klienta",
-                "firma": "Urzad Miasta",
-                "od": "2021-01",
-                "do": "2023-08",
-            }
-        ]
-    }
-    user_fields = {
-        "nr_telefonu": "+48500111222",
-        "email": "jan.kowalski@example.com",
-        "preferencje": ["IT", "Administracja"],
-        "obszar_poszukiwan": "Warszawa i okolice",
-        "jezyki": ["polski", "angielski"],
-        "szkolenia": ["Szkolenie RODO"],
-        "kursy": ["Kurs Excel zaawansowany"],
-        "certyfikaty": ["ECDL"],
-        "aktywnosc_dodatkowa": "Wolontariat lokalny",
-    }
-
-    candidate_record = candidates_collection.find_one({"_id": ObjectId(candidate_id)})
-    questionnaire = get_or_create_questionnaire(candidate_record)
-    apply_updates(questionnaire, mobywatel_fields, "mobywatel")
-    apply_updates(questionnaire, urzad_pracy_fields, "urzad_pracy")
-    apply_updates(questionnaire, user_fields, "user")
-
-    candidates_collection.update_one(
-        {"_id": ObjectId(candidate_id)},
-        {"$set": {"questionnaire": questionnaire}},
-    )
-
-    cv_id = None
-    if create_cv:
-        cv_payload = {
-            "user_id": candidate_id,
-            "skills": ["excel", "obsluga klienta", "react"],
-            "questionnaire_complete": questionnaire_completion(questionnaire)["is_complete"],
-            "questionnaire_missing_fields": questionnaire_completion(questionnaire)["missing_fields"],
-            "verification_sources": {
-                "mobywatel": SYSTEM_MOBYWATEL_FIELDS,
-                "urzad_pracy": SYSTEM_URZAD_PRACY_FIELDS,
-            },
-        }
-        cv_result = cv_collection.insert_one(cv_payload)
-        cv_id = str(cv_result.inserted_id)
-
-    return jsonify({
-        "message": "Demo candidate seeded",
-        "candidate_id": candidate_id,
-        "cv_id": cv_id,
-        "completion": questionnaire_completion(questionnaire),
-    }), 201

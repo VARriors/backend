@@ -21,6 +21,31 @@ jobs_collection = db['jobs']
 applications_collection = db['applications']
 
 
+def _unique_lower_strings(values):
+    seen = set()
+    output = []
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        normalized = value.strip().lower()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        output.append(normalized)
+    return output
+
+
+def _derive_skills_from_questionnaire(questionnaire):
+    fields = questionnaire.get("fields", {})
+    raw = []
+    for field_name in ["preferencje", "jezyki", "szkolenia", "kursy", "certyfikaty"]:
+        field_payload = fields.get(field_name, {})
+        value = field_payload.get("value") if isinstance(field_payload, dict) else None
+        if isinstance(value, list):
+            raw.extend(value)
+    return _unique_lower_strings(raw)
+
+
 def _extract_candidate_id(payload=None):
     payload = payload or {}
     return (
@@ -132,16 +157,12 @@ def generate_candidate_cv():
 
     questionnaire = get_or_create_questionnaire(candidate_doc)
     completion = questionnaire_completion(questionnaire)
-    preferences = questionnaire.get("fields", {}).get("preferencje", {}).get("value") or []
-
-    skills = payload.get("skills")
-    if not isinstance(skills, list) or not all(isinstance(item, str) for item in skills):
-        skills = [str(item).lower() for item in preferences if isinstance(item, str)]
+    skills = _derive_skills_from_questionnaire(questionnaire)
 
     cv_doc = {
         "user_id": candidate_id,
         "source": "generated",
-        "file_name": "cv-government-generated.pdf",
+        "file_name": f"cv-generated-{candidate_id}.pdf",
         "generated_at": now_iso(),
         "updated_at": now_iso(),
         "skills": skills,
