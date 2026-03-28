@@ -1,6 +1,11 @@
 from flask import Blueprint, jsonify, request
+from bson.objectid import ObjectId
 
 from app import db
+from app.services.job_requirements_service import (
+    get_job_cv_requirements,
+    validate_cv_requirement_for_application,
+)
 
 
 jobs_api_bp = Blueprint('jobs_api', __name__)
@@ -31,6 +36,8 @@ def _serialize_job(job_doc):
         "requiredSkills": job_doc.get("required_skills", []),
         "requiredBadges": job_doc.get("required_badges", []),
         "employmentType": job_doc.get("employment_type"),
+        "requiresCv": job_doc.get("requires_cv", False),
+        "cvRequiredReason": job_doc.get("cv_required_reason"),
         "createdAt": job_doc.get("created_at"),
         "updatedAt": job_doc.get("updated_at"),
     }
@@ -84,3 +91,54 @@ def list_jobs():
             "company": company or None,
         },
     }), 200
+
+
+@jobs_api_bp.route('/jobs/<job_id>/cv-requirement', methods=['GET'])
+def get_job_cv_requirement(job_id):
+    """
+    Get CV requirement info for a specific job.
+
+    Returns:
+    {
+        "job_id": str,
+        "requires_cv": bool,
+        "cv_required_reason": str | null
+    }
+    """
+    try:
+        object_id = ObjectId(job_id)
+    except Exception:
+        return jsonify({"error": "Invalid job ID"}), 400
+
+    job = jobs_collection.find_one({"_id": object_id})
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+
+    requirements = get_job_cv_requirements(job_id)
+    return jsonify(requirements), 200
+
+
+@jobs_api_bp.route('/jobs/<job_id>/validate-cv-requirement/<candidate_id>', methods=['GET'])
+def validate_job_cv_requirement(job_id, candidate_id):
+    """
+    Validate if a candidate meets the CV requirement for a job before applying.
+
+    Returns:
+    {
+        "valid": bool,
+        "requires_cv": bool,
+        "has_cv": bool,
+        "reason": str | null
+    }
+    """
+    try:
+        object_id = ObjectId(job_id)
+    except Exception:
+        return jsonify({"error": "Invalid job ID"}), 400
+
+    job = jobs_collection.find_one({"_id": object_id})
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+
+    validation_result = validate_cv_requirement_for_application(job_id, candidate_id)
+    return jsonify(validation_result), 200

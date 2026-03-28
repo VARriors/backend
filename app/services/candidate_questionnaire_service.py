@@ -20,6 +20,7 @@ FIELD_SOURCE_MAP = {
     "kursy": "user",
     "certyfikaty": "user",
     "aktywnosc_dodatkowa": "user",
+    "cv": "user",
 }
 
 SYSTEM_MOBYWATEL_FIELDS = [
@@ -82,6 +83,13 @@ def validate_field_payload(field, value):
             return f"Field '{field}' must be an array of strings"
     if field == "doswiadczenia_zawodowe" and not isinstance(value, list):
         return "Field 'doswiadczenia_zawodowe' must be an array"
+    if field == "cv":
+        # CV field is a dict with file metadata
+        if not isinstance(value, dict):
+            return "Field 'cv' must be an object"
+        # Must contain file_id
+        if "file_id" not in value or not isinstance(value.get("file_id"), str):
+            return "Field 'cv' must contain a 'file_id' string"
     return None
 
 
