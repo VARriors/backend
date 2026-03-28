@@ -807,9 +807,21 @@ def get_candidate_application_details(application_id):
     timeline_summary = None
     if ledger_ref:
         events = get_events(ledger_ref)
+        serialized_events = []
+        for event in events:
+            serialized_events.append({
+                "id": str(event.get("_id")),
+                "statusCode": event.get("status_code"),
+                "eventTime": event.get("event_time"),
+                "actorRole": event.get("actor_role"),
+                "actorId": event.get("actor_id"),
+                "note": event.get("note"),
+            })
+
         last_event = events[-1] if events else None
         timeline_summary = {
             "eventsCount": len(events),
+            "events": serialized_events,
             "lastEvent": {
                 "statusCode": last_event.get("status_code"),
                 "eventTime": last_event.get("event_time"),
