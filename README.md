@@ -5,7 +5,13 @@
 1. Create venv: `python3 -m venv .venv`
 2. Activate venv: `source .venv/bin/activate`
 3. Install dependencies: `pip install -r requirements.txt`
-4. Run app: `flask --app run.py --debug run --host 0.0.0.0 --port 5000`
+4. Run app: `flask --app run.py --debug run --host 0.0.0.0 --port 5001`
+
+### Local CORS (macOS friendly defaults)
+
+- API CORS is enabled for common local development origins, including localhost/127.0.0.1 variants used with backend port `5001`.
+- Override allowed origins with `CORS_ORIGINS` (comma-separated), for example:
+  - `CORS_ORIGINS=http://localhost:8081,http://127.0.0.1:8081`
 
 ## Health
 

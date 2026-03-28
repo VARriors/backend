@@ -17,7 +17,7 @@ Windows PowerShell env alternative (without `.env`):
 
 `$env:MONGO_DB_NAME="mpraca"`
 
-Server runs on `http://127.0.0.1:5000`.
+Server runs on `http://127.0.0.1:5001` by default (or `PORT` if set).
 
 ## Health
 

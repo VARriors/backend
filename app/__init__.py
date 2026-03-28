@@ -1,3 +1,5 @@
+import os
+
 from flask import Flask
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -19,7 +21,30 @@ from app.routes.ledger import ledger_bp
 
 def create_app():
     app = Flask(__name__)
-    CORS(app)
+
+    cors_origins_env = os.getenv('CORS_ORIGINS', '')
+    if cors_origins_env.strip():
+        cors_origins = [origin.strip() for origin in cors_origins_env.split(',') if origin.strip()]
+    else:
+        cors_origins = [
+            'http://localhost:5001',
+            'http://127.0.0.1:5001',
+            'http://localhost:8081',
+            'http://127.0.0.1:8081',
+            'http://localhost:19006',
+            'http://127.0.0.1:19006',
+            'http://localhost:3000',
+            'http://127.0.0.1:3000',
+            'http://localhost:5173',
+            'http://127.0.0.1:5173',
+        ]
+
+    CORS(
+        app,
+        resources={r"/api/*": {"origins": cors_origins}},
+        methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+        allow_headers=['Content-Type', 'Authorization', 'X-Candidate-Id'],
+    )
 
     app.register_blueprint(candidates_bp, url_prefix='/api/candidates')
     app.register_blueprint(candidate_questionnaire_bp, url_prefix='/api/candidates')
