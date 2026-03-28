@@ -94,6 +94,30 @@ def _normalize_job_id(job_doc, fallback_job_id):
         return str(job_doc["_id"])
     return fallback_job_id
 
+
+@candidate_api_bp.route('/context', methods=['GET'])
+def get_candidate_context():
+    candidate_id = _extract_candidate_id()
+    if not candidate_id:
+        return jsonify({"error": "Missing Candidate ID"}), 400
+        
+    candidate = _get_candidate_doc(candidate_id)
+    if not candidate:
+        return jsonify({"error": "Candidate not found"}), 404
+        
+    questionnaire = get_or_create_questionnaire(candidate)
+    completion = questionnaire_completion(questionnaire)
+    
+    return jsonify({
+        "candidateId": str(candidate['_id']),
+        "profile": {
+            "firstName": candidate.get("first_name"),
+            "lastName": candidate.get("last_name")
+        },
+        "questionnaireComplete": completion.get("is_complete", False),
+        "missingFields": completion.get("missing_fields", [])
+    }), 200
+
 @candidate_api_bp.route('/cv/status', methods=['GET'])
 def get_candidate_cv_status():
     """

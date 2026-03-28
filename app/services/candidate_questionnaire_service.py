@@ -56,10 +56,12 @@ def parse_object_id(candidate_id):
 
 
 def validate_email(value):
-    return isinstance(value, str) and re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value) is not None
+    return value == "" or value is None or (isinstance(value, str) and re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value) is not None)
 
 
 def validate_phone(value):
+    if value == "" or value is None:
+        return True
     if not isinstance(value, str):
         return False
     compact = re.sub(r"\s+", "", value)
@@ -67,7 +69,7 @@ def validate_phone(value):
 
 
 def validate_pesel(value):
-    return isinstance(value, str) and re.fullmatch(r"\d{11}", value) is not None
+    return value == "" or value is None or (isinstance(value, str) and re.fullmatch(r"\d{11}", value) is not None)
 
 
 def validate_field_payload(field, value):

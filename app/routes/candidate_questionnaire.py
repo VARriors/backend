@@ -202,6 +202,8 @@ def seed_demo_candidate():
 
     questionnaire = get_or_create_questionnaire(None)
     questionnaire["fields"]["imie"]["value"] = first_name
+    questionnaire["fields"]["pesel"]["value"] = "12345678901"
+    questionnaire["fields"]["dowod"]["value"] = "ABC123456"
     questionnaire["fields"]["nazwisko"]["value"] = last_name
 
     candidate = {
@@ -228,3 +230,76 @@ def seed_demo_candidate():
         "candidate_id": candidate_id,
         "questionnaire": questionnaire
     }), 201
+
+@candidate_questionnaire_bp.route('/questionnaire/<candidate_id>/cv', methods=['GET', 'DELETE'])
+def candidate_cv_operations(candidate_id):
+    object_id = parse_object_id(candidate_id)
+    if not object_id:
+        return jsonify({"error": "Invalid ID"}), 400
+
+    if request.method == 'GET':
+        cv_doc = cv_collection.find_one({"user_id": candidate_id})
+        
+        if not cv_doc:
+            return jsonify({"cv": None}), 200
+            
+        return jsonify({
+            "cv": {
+                "file_id": str(cv_doc.get("_id", "")),
+                "filename": cv_doc.get("filename", "cv.pdf"),
+                "uploaded_at": cv_doc.get("created_at"),
+                "extraction_status": cv_doc.get("extraction_status", "success" if cv_doc.get("has_cv") else "pending"),
+                "extracted_data": cv_doc.get("extracted_data", {})
+            }
+        }), 200
+        
+    elif request.method == 'DELETE':
+        cv_collection.delete_one({"user_id": candidate_id})
+        return jsonify({"message": "CV deleted successfuly"}), 200
+
+
+@candidate_questionnaire_bp.route('/questionnaire/<candidate_id>/cv-upload', methods=['POST'])
+def candidate_cv_upload_form(candidate_id):
+    object_id = parse_object_id(candidate_id)
+    if not object_id:
+        return jsonify({"error": "Invalid ID"}), 400
+
+    if 'file' not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+        
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "Empty filename"}), 400
+
+    # Hackathon stub for extraction
+    extracted = {
+        "email": "jan.kowalski@example.com",
+        "phone": "123456789",
+        "languages": [{"jezyk": "Angielski", "poziom": "B2"}],
+        "skills": ["Python", "JavaScript"]
+    }
+    
+    cv_doc = {
+        "user_id": candidate_id,
+        "filename": file.filename,
+        "has_cv": True,
+        "extraction_status": "success",
+        "extracted_data": extracted,
+        "created_at": now_iso()
+    }
+    
+    # upsert
+    cv_collection.update_one(
+        {"user_id": candidate_id},
+        {"$set": cv_doc},
+        upsert=True
+    )
+    
+    inserted_doc = cv_collection.find_one({"user_id": candidate_id})
+
+    return jsonify({
+        "file_id": str(inserted_doc.get("_id", "")),
+        "extraction_status": "success",
+        "extracted_data": extracted
+    }), 200
+

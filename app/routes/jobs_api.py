@@ -93,3 +93,14 @@ def post_jobs():
             
     result = jobs_collection.insert_one(new_offer)
     return jsonify({"message": "Job offer created", "id": str(result.inserted_id)}), 201
+@jobs_api_bp.route('/jobs/<job_id>', methods=['DELETE'])
+def delete_job(job_id):
+    """Delete a job offer by ID."""
+    from bson.objectid import ObjectId
+    try:
+        result = jobs_collection.delete_one({"_id": ObjectId(job_id)})
+        if result.deleted_count == 0:
+            return jsonify({"error": "Job not found"}), 404
+        return jsonify({"message": "Job deleted successfully"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
