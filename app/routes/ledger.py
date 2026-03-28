@@ -1,13 +1,16 @@
 from flask import Blueprint, jsonify, request
 
 from app.services.ledger_service import (
+    ALLOWED_DOCUMENT_TYPES,
     CANDIDATE_ALLOWED_STATUS_CODES,
     EMPLOYER_ALLOWED_STATUS_CODES,
+    append_application_document,
     append_event,
     build_signature_payload,
     create_application,
     ensure_indexes,
     get_application,
+    get_application_documents,
     get_events,
     get_signature_preview,
     verify_claim_token,
@@ -99,6 +102,36 @@ def _authorize_append(application, actor, status_code, idempotency_key, signatur
     return jsonify({"error": "Unsupported actor role"}), 400
 
 
+def _authorize_document_attach(application, actor):
+    role = actor["role"]
+    actor_id = actor["id"]
+
+    if role == "platform":
+        return None
+
+    if role != "candidate":
+        return jsonify({"error": "Only candidate or platform can attach documents"}), 403
+
+    if actor_id != application.get("candidate_id"):
+        return jsonify({"error": "Candidate cannot mutate foreign application"}), 403
+
+    if not verify_claim_token(actor.get("claim_token"), application.get("claim_token_hash")):
+        return jsonify({"error": "Invalid claim token"}), 403
+
+    return None
+
+
+def _serialize_document_for_role(document, role):
+    payload = dict(document)
+    payload["_id"] = str(payload.get("_id"))
+
+    if role == "employer":
+        payload.pop("document_reference", None)
+        payload.pop("metadata", None)
+
+    return payload
+
+
 @ledger_bp.route("/applications", methods=["POST"])
 def create_application_entry():
     payload = request.json or {}
@@ -183,13 +216,99 @@ def get_application_timeline(application_ref):
     for event in events:
         event["_id"] = str(event["_id"])
 
+    documents = get_application_documents(application_ref)
+    document_types = sorted({document.get("document_type") for document in documents if document.get("document_type")})
+    verified_count = sum(1 for document in documents if document.get("verification_status") == "verified")
+
     response = {
         "application_ref": application_ref,
         "application_commitment": application.get("application_commitment"),
         "latest_status": application.get("latest_status"),
         "events": events,
+        "documents_summary": {
+            "attached_count": len(documents),
+            "verified_count": verified_count,
+            "document_types": document_types,
+        },
     }
     return jsonify(response), 200
+
+
+@ledger_bp.route("/applications/<application_ref>/documents", methods=["POST"])
+def append_application_document_entry(application_ref):
+    payload = request.json or {}
+    actor = _get_actor_context()
+
+    document_type = payload.get("document_type")
+    verification_status = payload.get("verification_status") or "verified"
+    provider = payload.get("provider") or "mobywatel"
+    verified_at = payload.get("verified_at")
+    valid_until = payload.get("valid_until")
+    document_reference = payload.get("document_reference")
+    idempotency_key = payload.get("idempotency_key")
+    note = payload.get("note")
+    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+
+    if not document_type or not isinstance(document_type, str):
+        return jsonify({"error": "document_type is required"}), 400
+
+    if not idempotency_key or not isinstance(idempotency_key, str):
+        return jsonify({"error": "idempotency_key is required"}), 400
+
+    application = get_application(application_ref)
+    if not application:
+        return jsonify({"error": "Application not found"}), 404
+
+    auth_error = _authorize_document_attach(application, actor)
+    if auth_error:
+        return auth_error
+
+    try:
+        document_event = append_application_document(
+            application_ref=application_ref,
+            document_type=document_type,
+            actor_role=actor["role"],
+            actor_id=actor["id"],
+            idempotency_key=idempotency_key,
+            verification_status=verification_status,
+            provider=provider,
+            verified_at=verified_at,
+            valid_until=valid_until,
+            document_reference=document_reference,
+            note=note,
+            metadata=metadata,
+        )
+    except ValueError as error:
+        return jsonify({
+            "error": str(error),
+            "allowed_document_types": sorted(ALLOWED_DOCUMENT_TYPES),
+        }), 400
+    except LookupError as error:
+        return jsonify({"error": str(error)}), 404
+
+    return jsonify(_serialize_document_for_role(document_event, actor["role"])), 201
+
+
+@ledger_bp.route("/applications/<application_ref>/documents", methods=["GET"])
+def get_application_documents_list(application_ref):
+    actor = _get_actor_context()
+    application = get_application(application_ref)
+    if not application:
+        return jsonify({"error": "Application not found"}), 404
+
+    auth_error = _authorize_read(application, actor)
+    if auth_error:
+        return auth_error
+
+    documents = get_application_documents(application_ref)
+    role = actor["role"]
+    serialized = [_serialize_document_for_role(document, role) for document in documents]
+
+    return jsonify({
+        "application_ref": application_ref,
+        "documents": serialized,
+        "allowed_document_types": sorted(ALLOWED_DOCUMENT_TYPES),
+    }), 200
 
 
 @ledger_bp.route("/applications/<application_ref>/verify-chain", methods=["GET"])

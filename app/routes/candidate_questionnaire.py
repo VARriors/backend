@@ -3,6 +3,8 @@ from bson.objectid import ObjectId
 
 from app import db
 from app.services.candidate_questionnaire_service import (
+    SYSTEM_MOBYWATEL_FIELDS,
+    SYSTEM_URZAD_PRACY_FIELDS,
     FIELD_SOURCE_MAP,
     apply_updates,
     build_cv_gate_status,
@@ -176,6 +178,99 @@ def questionnaire_verification_summary(candidate_id):
         "per_field": per_field,
         "completion": questionnaire_completion(questionnaire),
     }), 200
+
+
+@candidate_questionnaire_bp.route('/questionnaire/seed-demo', methods=['POST'])
+def seed_demo_questionnaire():
+    payload = request.json or {}
+
+    first_name = payload.get("first_name") or "Jan"
+    last_name = payload.get("last_name") or "Kowalski"
+    create_cv = bool(payload.get("create_cv", True))
+
+    candidate_doc = {
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+
+    result = candidates_collection.insert_one(candidate_doc)
+    candidate_id = str(result.inserted_id)
+    candidate = candidates_collection.find_one({"_id": result.inserted_id})
+    questionnaire = get_or_create_questionnaire(candidate)
+
+    mobywatel_updates = {
+        "imie": first_name,
+        "nazwisko": last_name,
+        "pesel": "90010112345",
+        "dowod": "ABC123456",
+        "niepelnosprawnosc": False,
+    }
+    user_updates = {
+        "nr_telefonu": "+48500111222",
+        "email": f"{str(first_name).lower()}.{str(last_name).lower()}@example.com",
+        "preferencje": ["IT / Technologia", "Administracja"],
+        "obszar_poszukiwan": "mazowieckie, Warszawa",
+        "jezyki": ["Angielski (B2)", "Polski (natywny)"],
+        "szkolenia": ["Kurs React"],
+        "kursy": ["Kurs Python"],
+        "certyfikaty": ["AWS Cloud Practitioner"],
+        "aktywnosc_dodatkowa": ["Wolontariat"],
+    }
+    urzad_pracy_updates = {
+        "doswiadczenia_zawodowe": [
+            {
+                "stanowisko": "Specjalista IT",
+                "firma": "GovTech Solutions",
+                "od": "2022-01",
+                "do": "2024-12",
+            }
+        ]
+    }
+
+    errors = []
+    errors.extend(apply_updates(questionnaire, mobywatel_updates, "mobywatel"))
+    errors.extend(apply_updates(questionnaire, user_updates, "user"))
+    errors.extend(apply_updates(questionnaire, urzad_pracy_updates, "urzad_pracy"))
+
+    if errors:
+        candidates_collection.delete_one({"_id": result.inserted_id})
+        return jsonify({"error": "Seed validation failed", "details": errors}), 400
+
+    candidates_collection.update_one(
+        {"_id": result.inserted_id},
+        {"$set": {"questionnaire": questionnaire, "updated_at": now_iso()}},
+    )
+
+    completion = questionnaire_completion(questionnaire)
+
+    if create_cv:
+        cv_collection.update_one(
+            {"user_id": candidate_id},
+            {
+                "$set": {
+                    "user_id": candidate_id,
+                    "source": "generated",
+                    "file_name": f"cv-generated-{candidate_id}.pdf",
+                    "generated_at": now_iso(),
+                    "updated_at": now_iso(),
+                    "questionnaire_complete": completion["is_complete"],
+                    "questionnaire_missing_fields": completion["missing_fields"],
+                    "verification_sources": {
+                        "mobywatel": SYSTEM_MOBYWATEL_FIELDS,
+                        "urzad_pracy": SYSTEM_URZAD_PRACY_FIELDS,
+                    },
+                },
+                "$setOnInsert": {"created_at": now_iso()},
+            },
+            upsert=True,
+        )
+
+    return jsonify({
+        "message": "Demo candidate seeded",
+        "candidate_id": candidate_id,
+        "create_cv": create_cv,
+        "completion": completion,
+    }), 201
 
 
 @candidate_questionnaire_bp.route('/cv/status/<candidate_id>', methods=['GET'])
