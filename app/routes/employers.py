@@ -246,6 +246,20 @@ def mark_application_viewed(employer_id, application_id):
     }), 200
 
 
+@employers_bp.route('/by-nip/<nip>', methods=['GET'])
+def get_employer_by_nip(nip):
+    """Fetch employer data by NIP number."""
+    if not nip or not isinstance(nip, str) or not nip.strip():
+        return jsonify({"error": "NIP is required"}), 400
+    
+    employer = employers_collection.find_one({"nip": nip.strip()})
+    if not employer:
+        return jsonify({"error": "Employer not found"}), 404
+    
+    employer['_id'] = str(employer.get('_id'))
+    return jsonify(employer), 200
+
+
 @employers_bp.route('/applications/<employer_id>/<application_id>/decision', methods=['PATCH'])
 def decide_application(employer_id, application_id):
     payload = request.json or {}
