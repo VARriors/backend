@@ -94,6 +94,40 @@ def _normalize_job_id(job_doc, fallback_job_id):
         return str(job_doc["_id"])
     return fallback_job_id
 
+
+@candidate_api_bp.route('/context', methods=['GET'])
+def get_candidate_context():
+    """
+    Lightweight candidate context endpoint for frontend bootstrap.
+    Requires X-Candidate-Id header.
+    """
+    candidate_id = request.headers.get('X-Candidate-Id')
+    if not candidate_id:
+        return jsonify({
+            "error": "X-Candidate-Id header is required"
+        }), 400
+
+    candidate_doc = _get_candidate_doc(candidate_id)
+    if not candidate_doc:
+        return jsonify({"error": "Candidate not found"}), 404
+
+    questionnaire = get_or_create_questionnaire(candidate_doc)
+    completion = questionnaire_completion(questionnaire)
+
+    fields = questionnaire.get("fields", {}) if isinstance(questionnaire, dict) else {}
+    first_name = (fields.get("imie") or {}).get("value")
+    last_name = (fields.get("nazwisko") or {}).get("value")
+
+    return jsonify({
+        "candidateId": candidate_id,
+        "profile": {
+            "firstName": first_name,
+            "lastName": last_name,
+        },
+        "questionnaireComplete": completion["is_complete"],
+        "missingFields": completion["missing_fields"],
+    }), 200
+
 @candidate_api_bp.route('/cv/status', methods=['GET'])
 def get_candidate_cv_status():
     """
