@@ -70,6 +70,7 @@ Ledger events are emitted automatically from existing app flow endpoints.
 - `POST /api/candidate/apply`
 - Creates business application (`applications` collection) and linked ledger application.
 - Automatically emits initial immutable `SENT` event.
+- Optionally attaches selected verified documents to ledger in one call.
 
 Request:
 
@@ -77,9 +78,27 @@ Request:
 {
   "candidateId": "cand-123",
   "job_id": "<job_id>",
-  "employer_id": "empl-123"
+  "employer_id": "empl-123",
+  "selectedDocuments": ["driving_license", "criminal_record"]
 }
 ```
+
+Allowed selected documents:
+
+- `disability_statement`
+- `driving_license`
+- `criminal_record`
+- `sanitary_book`
+
+### Candidate applications list and details
+
+- `GET /api/candidate/applications`
+- `GET /api/candidate/applications/<application_id>`
+
+Both endpoints require candidate identity via one of:
+
+- query param `candidateId`
+- header `X-Candidate-Id`
 
 ### Employer viewed hook
 
