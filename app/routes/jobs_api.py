@@ -171,3 +171,15 @@ def delete_job(job_id):
 
 #     validation_result = validate_cv_requirement_for_application(job_id, candidate_id)
 #     return jsonify(validation_result), 200
+
+@jobs_api_bp.route('/jobs/<job_id>', methods=['GET'])
+def get_job(job_id):
+    """Get a job offer by ID."""
+    from bson.objectid import ObjectId
+    try:
+        job_doc = jobs_collection.find_one({"_id": ObjectId(job_id)})
+        if not job_doc:
+            return jsonify({"error": "Job not found"}), 404
+        return jsonify(_serialize_job(job_doc)), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
