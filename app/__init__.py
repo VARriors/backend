@@ -4,6 +4,12 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 import os
 
+from app.routes.candidates import candidates_bp
+from app.routes.candidate_questionnaire import candidate_questionnaire_bp
+from app.routes.employers import employers_bp
+from app.routes.matching import matching_bp
+from app.routes.candidate_api import candidate_api_bp
+
 load_dotenv()
 
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/mpraca")
@@ -13,12 +19,6 @@ db = mongo_client.get_database()
 def create_app():
     app = Flask(__name__)
     CORS(app)
-
-    from app.routes.candidates import candidates_bp
-    from app.routes.candidate_questionnaire import candidate_questionnaire_bp
-    from app.routes.employers import employers_bp
-    from app.routes.matching import matching_bp
-    from app.routes.candidate_api import candidate_api_bp
 
     app.register_blueprint(candidates_bp, url_prefix='/api/candidates')
     app.register_blueprint(candidate_questionnaire_bp, url_prefix='/api/candidates')
