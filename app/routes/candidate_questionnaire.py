@@ -427,24 +427,36 @@ def delete_cv(candidate_id):
     cv_field = questionnaire.get("fields", {}).get("cv", {})
 
     if not cv_field or not cv_field.get("value"):
-        return jsonify({"error": "No CV found for this candidate"}), 404
+        return jsonify({
+            "message": "No CV found for this candidate",
+            "candidate_id": candidate_id,
+        }), 200
 
     cv_value = cv_field.get("value", {})
     file_id = cv_value.get("file_id")
 
     if file_id:
-        # Delete from GridFS
+        # Best-effort delete from GridFS; questionnaire cleanup below is always applied.
         delete_cv_file(file_id)
 
-    # Clear CV field from questionnaire
-    if "cv" in questionnaire.get("fields", {}):
-        del questionnaire["fields"]["cv"]
-        questionnaire["updated_at"] = now_iso()
+    # Keep schema stable: clear value instead of removing field entirely.
+    fields = questionnaire.setdefault("fields", {})
+    fields["cv"] = {
+        "value": None,
+        "verification": {
+            "source": "user",
+            "status": "unverified",
+            "verified_by": None,
+            "verified_at": None,
+            "note": None,
+        },
+    }
+    questionnaire["updated_at"] = now_iso()
 
-        candidates_collection.update_one(
-            {"_id": object_id},
-            {"$set": {"questionnaire": questionnaire}},
-        )
+    candidates_collection.update_one(
+        {"_id": object_id},
+        {"$set": {"questionnaire": questionnaire, "updated_at": now_iso()}},
+    )
 
     return jsonify({
         "message": "CV deleted successfully",
