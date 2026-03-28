@@ -30,6 +30,7 @@ def _serialize_job(job_doc):
         "id": str(job_doc.get("_id")),
         "title": job_doc.get("title"),
         "company": job_doc.get("company"),
+        "employer_id": job_doc.get("employer_id") or job_doc.get("employerId"), 
         "location": job_doc.get("location"),
         "category": job_doc.get("category"),
         "description": job_doc.get("description"),
@@ -119,58 +120,56 @@ def delete_job(job_id):
         return jsonify({"message": "Job deleted successfully"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 400
-#     result = jobs_collection.insert_one(new_offer)
-#     return jsonify({"message": "Job offer created", "id": str(result.inserted_id)}), 201
 
-# @jobs_api_bp.route('/jobs/<job_id>/cv-requirement', methods=['GET'])
-# def get_job_cv_requirement(job_id):
-#     """
-#     Get CV requirement info for a specific job.
+@jobs_api_bp.route('/jobs/<job_id>/cv-requirement', methods=['GET'])
+def get_job_cv_requirement(job_id):
+    """
+    Get CV requirement info for a specific job.
 
-#     Returns:
-#     {
-#         "job_id": str,
-#         "requires_cv": bool,
-#         "cv_required_reason": str | null
-#     }
-#     """
-#     try:
-#         object_id = ObjectId(job_id)
-#     except Exception:
-#         return jsonify({"error": "Invalid job ID"}), 400
+    Returns:
+    {
+        "job_id": str,
+        "requires_cv": bool,
+        "cv_required_reason": str | null
+    }
+    """
+    try:
+        object_id = ObjectId(job_id)
+    except Exception:
+        return jsonify({"error": "Invalid job ID"}), 400
 
-#     job = jobs_collection.find_one({"_id": object_id})
-#     if not job:
-#         return jsonify({"error": "Job not found"}), 404
+    job = jobs_collection.find_one({"_id": object_id})
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
 
-#     requirements = get_job_cv_requirements(job_id)
-#     return jsonify(requirements), 200
+    requirements = get_job_cv_requirements(job_id)
+    return jsonify(requirements), 200
 
 
-# @jobs_api_bp.route('/jobs/<job_id>/validate-cv-requirement/<candidate_id>', methods=['GET'])
-# def validate_job_cv_requirement(job_id, candidate_id):
-#     """
-#     Validate if a candidate meets the CV requirement for a job before applying.
+@jobs_api_bp.route('/jobs/<job_id>/validate-cv-requirement/<candidate_id>', methods=['GET'])
+def validate_job_cv_requirement(job_id, candidate_id):
+    """
+    Validate if a candidate meets the CV requirement for a job before applying.
 
-#     Returns:
-#     {
-#         "valid": bool,
-#         "requires_cv": bool,
-#         "has_cv": bool,
-#         "reason": str | null
-#     }
-#     """
-#     try:
-#         object_id = ObjectId(job_id)
-#     except Exception:
-#         return jsonify({"error": "Invalid job ID"}), 400
+    Returns:
+    {
+        "valid": bool,
+        "requires_cv": bool,
+        "has_cv": bool,
+        "reason": str | null
+    }
+    """
+    try:
+        object_id = ObjectId(job_id)
+    except Exception:
+        return jsonify({"error": "Invalid job ID"}), 400
 
-#     job = jobs_collection.find_one({"_id": object_id})
-#     if not job:
-#         return jsonify({"error": "Job not found"}), 404
+    job = jobs_collection.find_one({"_id": object_id})
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
 
-#     validation_result = validate_cv_requirement_for_application(job_id, candidate_id)
-#     return jsonify(validation_result), 200
+    validation_result = validate_cv_requirement_for_application(job_id, candidate_id)
+    return jsonify(validation_result), 200
 
 @jobs_api_bp.route('/jobs/<job_id>', methods=['GET'])
 def get_job(job_id):
