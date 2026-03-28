@@ -193,7 +193,7 @@ def create_application(candidate_id, employer_id, job_id, metadata=None):
         actor_role="platform",
         actor_id="platform",
         idempotency_key=f"init-{secrets.token_hex(8)}",
-        note="Application created",
+        note="Utworzono zgłoszenie",
         metadata={"origin": "application_create"},
     )
 
