@@ -132,12 +132,13 @@ def get_matches_for_job(job_id):
     }
 
     evaluated_candidates = []
-    for cv_doc in candidate_cv_docs:
-        candidate_id = cv_doc.get("user_id")
-        if not isinstance(candidate_id, str):
-            continue
-
+    for candidate_id in applicant_ids:
         print(f"Processing candidate: {candidate_id}")
+        
+        cv_doc = cv_collection.find_one({"user_id": candidate_id})
+        if not cv_doc:
+            cv_doc = {"user_id": candidate_id, "skills": [], "extracted_data": {}}
+
         evaluation = evaluate_match_with_llm(cv_doc, job_doc)
         app_doc = applications_by_candidate.get(candidate_id)
 
