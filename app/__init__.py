@@ -25,6 +25,7 @@ def create_app():
     app.register_blueprint(ledger_bp, url_prefix='/api/ledger')
     app.register_blueprint(matching_bp, url_prefix='/api/matching')
     app.register_blueprint(candidate_api_bp, url_prefix='/api/candidate')
+    app.register_blueprint(jobs_api_bp, url_prefix='/api')
 
     @app.route('/', methods=['GET'])
     def index():
