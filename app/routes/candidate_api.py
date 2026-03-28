@@ -153,13 +153,13 @@ def get_candidate_context():
         },
         "questionnaireComplete": completion["is_complete"],
         "missingFields": completion["missing_fields"],
-        **_candidate_employment_payload(candidate_doc),
+        **_candidate_employment_payload(candidate),
     }), 200
 
 
 @candidate_api_bp.route('/register-unemployed', methods=['POST'])
 def register_candidate_as_unemployed():
-    payload = request.json or {}
+    payload = request.get_json(silent=True) or {}
     candidate_id = _extract_candidate_id(payload)
     if not candidate_id:
         return jsonify({
@@ -184,6 +184,8 @@ def register_candidate_as_unemployed():
     )
 
     refreshed_doc = _get_candidate_doc(candidate_id)
+    questionnaire = get_or_create_questionnaire(refreshed_doc)
+    completion = questionnaire_completion(questionnaire)
 
     return jsonify({
         "message": "Registered as unemployed",
@@ -191,6 +193,7 @@ def register_candidate_as_unemployed():
         **_candidate_employment_payload(refreshed_doc),
         "questionnaireComplete": completion.get("is_complete", False),
         "missingFields": completion.get("missing_fields", [])
+    }), 200
 # def _parse_selected_documents(payload):
 #     raw = payload.get("selected_documents")
 #     if raw is None:
@@ -306,8 +309,6 @@ def register_candidate_as_unemployed():
 #         },
 #         "questionnaireComplete": completion["is_complete"],
 #         "missingFields": completion["missing_fields"],
-    }), 200
-
 @candidate_api_bp.route('/cv/status', methods=['GET'])
 def get_candidate_cv_status():
     """

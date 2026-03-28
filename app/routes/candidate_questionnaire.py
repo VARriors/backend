@@ -382,19 +382,6 @@ def seed_demo_candidate():
 #             {"$set": {"questionnaire": questionnaire, "updated_at": now_iso()}},
 #         )
 
-        return jsonify({
-            "message": "CV uploaded and processed successfully",
-            "candidate_id": candidate_id,
-            "file_id": cv_result["file_id"],
-            "extraction_status": cv_result["extraction_status"],
-            "extracted_data": cv_result.get("extracted_data"),
-            "error": cv_result.get("error"),
-        }), 201
-
-    except Exception as e:
-        return jsonify({"error": "CV processing failed", "details": str(e)}), 500
-
-
 @candidate_questionnaire_bp.route('/questionnaire/<candidate_id>/cv', methods=['GET'])
 def get_cv_info(candidate_id):
     """
