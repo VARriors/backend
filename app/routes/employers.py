@@ -90,6 +90,14 @@ def jobs():
         new_offer = request.json
         if not new_offer or 'title' not in new_offer:
             return jsonify({"error": "Missing title in payload"}), 400
+
+        employer_id = new_offer.get("employer_id") or new_offer.get("employerId")
+        if not isinstance(employer_id, str) or not employer_id.strip():
+            return jsonify({"error": "Missing employer_id in payload"}), 400
+
+        new_offer["employer_id"] = employer_id.strip()
+        new_offer["created_at"] = new_offer.get("created_at") or now_iso()
+        new_offer["updated_at"] = now_iso()
         
         result = jobs_collection.insert_one(new_offer)
         return jsonify({"message": "Job offer created", "id": str(result.inserted_id)}), 201

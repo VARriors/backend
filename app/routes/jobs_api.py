@@ -1,4 +1,5 @@
 from flask import Blueprint, jsonify, request
+from bson.errors import InvalidId
 from bson.objectid import ObjectId
 
 from app import db
@@ -43,12 +44,19 @@ def _serialize_job(job_doc):
     }
 
 
-@jobs_api_bp.route('/jobs', methods=['GET'])
+@jobs_api_bp.route('/jobs', methods=['GET', 'POST'])
 def list_jobs():
     """
     Public jobs listing endpoint for candidate job search.
     Supported query params: q, category, location, company, page, limit.
     """
+    if request.method == 'POST':
+        new_offer = request.json
+        if not new_offer or 'title' not in new_offer:
+            return jsonify({"error": "Missing title in payload"}), 400
+            
+        result = jobs_collection.insert_one(new_offer)
+        return jsonify({"message": "Job offer created", "id": str(result.inserted_id)}), 201
     q = request.args.get('q', '').strip()
     category = request.args.get('category', '').strip()
     location = request.args.get('location', '').strip()
