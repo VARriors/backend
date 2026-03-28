@@ -73,6 +73,8 @@ def list_jobs():
     category = request.args.get('category', '').strip()
     location = request.args.get('location', '').strip()
     company = request.args.get('company', '').strip()
+    employment_type = request.args.get('employment_type', '').strip()
+    work_time = request.args.get('work_time', '').strip()
 
     page = _to_positive_int(request.args.get('page'), default_value=1)
     limit = _to_positive_int(request.args.get('limit'), default_value=20, max_value=100)
@@ -86,11 +88,15 @@ def list_jobs():
             {"description": {"$regex": q, "$options": "i"}},
         ]
     if category:
-        mongo_filter["category"] = {"$regex": f"^{category}$", "$options": "i"}
+        mongo_filter["category"] = category
     if location:
         mongo_filter["location"] = {"$regex": location, "$options": "i"}
     if company:
         mongo_filter["company"] = {"$regex": company, "$options": "i"}
+    if employment_type:
+        mongo_filter["employment_type"] = employment_type
+    if work_time:
+        mongo_filter["work_time"] = work_time
 
     total = jobs_collection.count_documents(mongo_filter)
     cursor = jobs_collection.find(mongo_filter).sort("_id", -1).skip(skip).limit(limit)
@@ -109,6 +115,8 @@ def list_jobs():
             "category": category or None,
             "location": location or None,
             "company": company or None,
+            "employment_type": employment_type or None,
+            "work_time": work_time or None,
         },
     }), 200
 
