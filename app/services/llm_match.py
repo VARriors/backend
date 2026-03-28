@@ -1,6 +1,193 @@
 import json
 import os
+import re
+from typing import Any, Dict, List
+
 from groq import Groq
+
+
+DEFAULT_CRITERIA = [
+    {"id": 1, "description": "Skills and experience fit", "weight": 5},
+    {"id": 2, "description": "Location and work mode fit", "weight": 3},
+    {"id": 3, "description": "Preferences and role fit", "weight": 4},
+]
+
+
+def _safe_string(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    return ""
+
+
+def _to_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        parts = []
+        for item in value.values():
+            text = _to_text(item)
+            if text:
+                parts.append(text)
+        return " ".join(parts)
+    if isinstance(value, list):
+        parts = []
+        for item in value:
+            text = _to_text(item)
+            if text:
+                parts.append(text)
+        return " ".join(parts)
+    return _safe_string(value)
+
+
+def _tokenize(value: Any) -> set:
+    text = _to_text(value).lower()
+    tokens = re.findall(r"[\w+#]{2,}", text, flags=re.UNICODE)
+    return set(tokens)
+
+
+def _collect_candidate_tokens(candidate_data: Dict[str, Any]) -> set:
+    fields = [
+        candidate_data.get("skills"),
+        candidate_data.get("languages"),
+        candidate_data.get("preferencje"),
+        candidate_data.get("doswiadczenie"),
+        candidate_data.get("questionnaire"),
+        candidate_data.get("extracted_data"),
+    ]
+    tokens = set()
+    for field in fields:
+        tokens.update(_tokenize(field))
+    return tokens
+
+
+def _collect_job_tokens(job_data: Dict[str, Any]) -> set:
+    fields = [
+        job_data.get("title"),
+        job_data.get("description"),
+        job_data.get("category"),
+        job_data.get("required_skills"),
+        job_data.get("requiredSkills"),
+        job_data.get("criteria"),
+        job_data.get("stanowisko"),
+    ]
+    tokens = set()
+    for field in fields:
+        tokens.update(_tokenize(field))
+    return tokens
+
+
+def _extract_candidate_location(candidate_data: Dict[str, Any]) -> str:
+    parts = [
+        candidate_data.get("miasto"),
+        candidate_data.get("wojewodztwo"),
+        candidate_data.get("location"),
+        candidate_data.get("obszar_poszukiwan"),
+    ]
+    return " ".join([_safe_string(part) for part in parts if _safe_string(part)]).strip().lower()
+
+
+def _extract_job_location(job_data: Dict[str, Any]) -> str:
+    parts = [
+        job_data.get("location"),
+        job_data.get("lokalizacja"),
+        job_data.get("tryb_pracy"),
+    ]
+    return " ".join([_safe_string(part) for part in parts if _safe_string(part)]).strip().lower()
+
+
+def _extract_candidate_preferences(candidate_data: Dict[str, Any]) -> str:
+    parts = [
+        candidate_data.get("preferencje"),
+        candidate_data.get("questionnaire"),
+    ]
+    return _to_text(parts).lower()
+
+
+def _extract_job_role_text(job_data: Dict[str, Any]) -> str:
+    parts = [
+        job_data.get("title"),
+        job_data.get("category"),
+        job_data.get("stanowisko"),
+    ]
+    return _to_text(parts).lower()
+
+
+def _evaluate_match_heuristic(candidate_data: Dict[str, Any], job_offer_data: Dict[str, Any]) -> Dict[str, Any]:
+    criteria_list = job_offer_data.get("criteria", [])
+    if not criteria_list:
+        criteria_list = DEFAULT_CRITERIA
+
+    candidate_tokens = _collect_candidate_tokens(candidate_data)
+    job_tokens = _collect_job_tokens(job_offer_data)
+    required_skills = job_offer_data.get("required_skills") or job_offer_data.get("requiredSkills") or []
+
+    if isinstance(required_skills, list) and required_skills:
+        required_tokens = set()
+        for skill in required_skills:
+            required_tokens.update(_tokenize(skill))
+        overlap_base = required_tokens if required_tokens else job_tokens
+    else:
+        overlap_base = job_tokens
+
+    if overlap_base:
+        overlap_ratio = len(candidate_tokens.intersection(overlap_base)) / len(overlap_base)
+    else:
+        overlap_ratio = 0.5
+    skills_score = max(0.0, min(1.0, overlap_ratio * 1.4))
+
+    candidate_location = _extract_candidate_location(candidate_data)
+    job_location = _extract_job_location(job_offer_data)
+    if any(tag in job_location for tag in ["remote", "zdal", "hybrid", "hybryd"]):
+        location_score = 1.0
+    elif not candidate_location or not job_location:
+        location_score = 0.5
+    elif candidate_location in job_location or job_location in candidate_location:
+        location_score = 1.0
+    elif candidate_location.split(" ")[0] in job_location:
+        location_score = 0.7
+    else:
+        location_score = 0.25
+
+    preference_tokens = _tokenize(_extract_candidate_preferences(candidate_data))
+    role_tokens = _tokenize(_extract_job_role_text(job_offer_data))
+    if preference_tokens and role_tokens:
+        preference_overlap = len(preference_tokens.intersection(role_tokens)) / len(role_tokens)
+    else:
+        preference_overlap = 0.5
+    preference_score = max(0.0, min(1.0, preference_overlap * 1.8))
+
+    per_criterion_score: List[float] = [skills_score, location_score, preference_score]
+    total_score = 0.0
+    max_possible_score = 0.0
+    final_evaluations = []
+
+    for index, criterion in enumerate(criteria_list):
+        weight = float(criterion.get("weight", 1) or 1)
+        score = per_criterion_score[index] if index < len(per_criterion_score) else skills_score
+        points_earned = score * weight
+        total_score += points_earned
+        max_possible_score += weight
+
+        final_evaluations.append({
+            "description": criterion.get("description", f"Criterion {index + 1}"),
+            "score": round(score, 4),
+            "earned_points": round(points_earned, 4),
+            "max_points": weight,
+            "justification": "Heuristic score for demo mode.",
+        })
+
+    final_percentage = (total_score / max_possible_score) * 100 if max_possible_score > 0 else 0
+    return {
+        "final_match_percentage": round(final_percentage, 2),
+        "evaluations": final_evaluations,
+        "source": "heuristic",
+    }
 
 def _build_candidate_string(c: dict) -> str:
     return f"""
@@ -26,11 +213,7 @@ def _build_job_string(j: dict) -> str:
 def evaluate_match_with_llm(candidate_data: dict, job_offer_data: dict) -> dict:
     criteria_list = job_offer_data.get('criteria', [])
     if not criteria_list:
-        criteria_list = [
-            {"id": 1, "description": "Dopasowanie doświadczenia kandydata do wymaganego poziomu.", "weight": 5},
-            {"id": 2, "description": "Lokalizacja kandydata a tryb pracy i lokalizacja firmy.", "weight": 3},
-            {"id": 3, "description": "Dopasowanie umiejętności/języków do specyfiki stanowiska.", "weight": 4}
-        ]
+        criteria_list = DEFAULT_CRITERIA
 
     criteria_text = "\n".join([f"- ID: {c.get('id')}, Wymaganie: {c.get('description')}, Waga/Istotność: {c.get('weight')}" for c in criteria_list])
     
@@ -57,7 +240,9 @@ def evaluate_match_with_llm(candidate_data: dict, job_offer_data: dict) -> dict:
 
     groq_api_key = os.environ.get("GROQ_API_KEY")
     if not groq_api_key:
-         return {"final_match_percentage": 50, "evaluations": [], "message": "Brak klucza API"}
+        result = _evaluate_match_heuristic(candidate_data, job_offer_data)
+        result["message"] = "GROQ_API_KEY not set, using heuristic fallback"
+        return result
 
     try:
         client = Groq(api_key=groq_api_key)
@@ -105,9 +290,12 @@ def evaluate_match_with_llm(candidate_data: dict, job_offer_data: dict) -> dict:
         
         return {
             "final_match_percentage": round(final_percentage, 2),
-            "evaluations": final_evaluations
+            "evaluations": final_evaluations,
+            "source": "llm",
         }
             
     except Exception as e:
         print(f"LLM Error: {e}")
-        return {"final_match_percentage": 0, "evaluations": []}
+        result = _evaluate_match_heuristic(candidate_data, job_offer_data)
+        result["message"] = "LLM failed, using heuristic fallback"
+        return result
