@@ -132,118 +132,24 @@ def _normalize_job_id(job_doc, fallback_job_id):
     return fallback_job_id
 
 
-def _parse_selected_documents(payload):
-    raw = payload.get("selected_documents")
-    if raw is None:
-        raw = payload.get("selectedDocuments")
-
-    if raw is None:
-        return [], None
-
-    normalized = _normalize_string_list(raw)
-    if normalized is None:
-        return None, "selectedDocuments must be an array of strings"
-
-    invalid = [item for item in normalized if item not in ALLOWED_DOCUMENT_TYPES]
-    if invalid:
-        return None, f"Invalid selected document types: {', '.join(invalid)}"
-
-    return normalized, None
-
-
-def _merge_unique_strings(*values_lists):
-    seen = set()
-    merged = []
-    for values in values_lists:
-        if not isinstance(values, list):
-            continue
-        for value in values:
-            if not isinstance(value, str):
-                continue
-            normalized = value.strip().lower()
-            if not normalized or normalized in seen:
-                continue
-            seen.add(normalized)
-            merged.append(normalized)
-    return merged
-
-
-def _attach_selected_documents(application_ref, candidate_id, selected_documents):
-    attached_count = 0
-    for document_type in selected_documents:
-        append_application_document(
-            application_ref=application_ref,
-            document_type=document_type,
-            actor_role="candidate",
-            actor_id=candidate_id,
-            idempotency_key=f"apply-doc-{document_type}",
-            verification_status="verified",
-            provider="mobywatel",
-            note="Attached during one-click apply",
-            metadata={"origin": "candidate_apply"},
-        )
-        attached_count += 1
-    return attached_count
-
-
-def _serialize_candidate_application(app_doc, job_doc=None):
-    payload = {
-        "applicationId": str(app_doc.get("_id")),
-        "candidateId": app_doc.get("candidate_id"),
-        "employerId": app_doc.get("employer_id"),
-        "jobId": app_doc.get("job_id"),
-        "status": app_doc.get("status", "SENT"),
-        "createdAt": app_doc.get("created_at"),
-        "updatedAt": app_doc.get("updated_at"),
-        "selectedDocuments": app_doc.get("selected_documents", []),
-    }
-
-    if job_doc:
-        payload["job"] = {
-            "id": str(job_doc.get("_id")) if job_doc.get("_id") else job_doc.get("id"),
-            "title": job_doc.get("title"),
-            "company": job_doc.get("company"),
-            "location": job_doc.get("location"),
-            "category": job_doc.get("category"),
-        }
-
-    payload["ledger"] = {
-        "applicationRef": app_doc.get("ledger_application_ref"),
-        "applicationCommitment": app_doc.get("ledger_application_commitment"),
-        "latestStatus": app_doc.get("ledger_latest_status") or app_doc.get("status", "SENT"),
-    }
-
-    return payload
-
-
 @candidate_api_bp.route('/context', methods=['GET'])
 def get_candidate_context():
-    """
-    Lightweight candidate context endpoint for frontend bootstrap.
-    Requires X-Candidate-Id header.
-    """
-    candidate_id = request.headers.get('X-Candidate-Id')
+    candidate_id = _extract_candidate_id()
     if not candidate_id:
-        return jsonify({
-            "error": "X-Candidate-Id header is required"
-        }), 400
-
-    candidate_doc = _get_candidate_doc(candidate_id)
-    if not candidate_doc:
+        return jsonify({"error": "Missing Candidate ID"}), 400
+        
+    candidate = _get_candidate_doc(candidate_id)
+    if not candidate:
         return jsonify({"error": "Candidate not found"}), 404
-
-    questionnaire = get_or_create_questionnaire(candidate_doc)
+        
+    questionnaire = get_or_create_questionnaire(candidate)
     completion = questionnaire_completion(questionnaire)
-
-    fields = questionnaire.get("fields", {}) if isinstance(questionnaire, dict) else {}
-    first_name = (fields.get("imie") or {}).get("value")
-    last_name = (fields.get("nazwisko") or {}).get("value")
-
+    
     return jsonify({
-        "candidateId": candidate_id,
+        "candidateId": str(candidate['_id']),
         "profile": {
-            "firstName": first_name,
-            "lastName": last_name,
+            "firstName": candidate.get("first_name"),
+            "lastName": candidate.get("last_name")
         },
         "questionnaireComplete": completion["is_complete"],
         "missingFields": completion["missing_fields"],
@@ -283,6 +189,123 @@ def register_candidate_as_unemployed():
         "message": "Registered as unemployed",
         "candidateId": candidate_id,
         **_candidate_employment_payload(refreshed_doc),
+        "questionnaireComplete": completion.get("is_complete", False),
+        "missingFields": completion.get("missing_fields", [])
+# def _parse_selected_documents(payload):
+#     raw = payload.get("selected_documents")
+#     if raw is None:
+#         raw = payload.get("selectedDocuments")
+
+#     if raw is None:
+#         return [], None
+
+#     normalized = _normalize_string_list(raw)
+#     if normalized is None:
+#         return None, "selectedDocuments must be an array of strings"
+
+#     invalid = [item for item in normalized if item not in ALLOWED_DOCUMENT_TYPES]
+#     if invalid:
+#         return None, f"Invalid selected document types: {', '.join(invalid)}"
+
+#     return normalized, None
+
+
+# def _merge_unique_strings(*values_lists):
+#     seen = set()
+#     merged = []
+#     for values in values_lists:
+#         if not isinstance(values, list):
+#             continue
+#         for value in values:
+#             if not isinstance(value, str):
+#                 continue
+#             normalized = value.strip().lower()
+#             if not normalized or normalized in seen:
+#                 continue
+#             seen.add(normalized)
+#             merged.append(normalized)
+#     return merged
+
+
+# def _attach_selected_documents(application_ref, candidate_id, selected_documents):
+#     attached_count = 0
+#     for document_type in selected_documents:
+#         append_application_document(
+#             application_ref=application_ref,
+#             document_type=document_type,
+#             actor_role="candidate",
+#             actor_id=candidate_id,
+#             idempotency_key=f"apply-doc-{document_type}",
+#             verification_status="verified",
+#             provider="mobywatel",
+#             note="Attached during one-click apply",
+#             metadata={"origin": "candidate_apply"},
+#         )
+#         attached_count += 1
+#     return attached_count
+
+
+# def _serialize_candidate_application(app_doc, job_doc=None):
+#     payload = {
+#         "applicationId": str(app_doc.get("_id")),
+#         "candidateId": app_doc.get("candidate_id"),
+#         "employerId": app_doc.get("employer_id"),
+#         "jobId": app_doc.get("job_id"),
+#         "status": app_doc.get("status", "SENT"),
+#         "createdAt": app_doc.get("created_at"),
+#         "updatedAt": app_doc.get("updated_at"),
+#         "selectedDocuments": app_doc.get("selected_documents", []),
+#     }
+
+#     if job_doc:
+#         payload["job"] = {
+#             "id": str(job_doc.get("_id")) if job_doc.get("_id") else job_doc.get("id"),
+#             "title": job_doc.get("title"),
+#             "company": job_doc.get("company"),
+#             "location": job_doc.get("location"),
+#             "category": job_doc.get("category"),
+#         }
+
+#     payload["ledger"] = {
+#         "applicationRef": app_doc.get("ledger_application_ref"),
+#         "applicationCommitment": app_doc.get("ledger_application_commitment"),
+#         "latestStatus": app_doc.get("ledger_latest_status") or app_doc.get("status", "SENT"),
+#     }
+
+#     return payload
+
+
+# @candidate_api_bp.route('/context', methods=['GET'])
+# def get_candidate_context():
+#     """
+#     Lightweight candidate context endpoint for frontend bootstrap.
+#     Requires X-Candidate-Id header.
+#     """
+#     candidate_id = request.headers.get('X-Candidate-Id')
+#     if not candidate_id:
+#         return jsonify({
+#             "error": "X-Candidate-Id header is required"
+#         }), 400
+
+#     candidate_doc = _get_candidate_doc(candidate_id)
+#     if not candidate_doc:
+#         return jsonify({"error": "Candidate not found"}), 404
+
+#     questionnaire = get_or_create_questionnaire(candidate_doc)
+#     completion = questionnaire_completion(questionnaire)
+
+#     fields = questionnaire.get("fields", {}) if isinstance(questionnaire, dict) else {}
+#     first_name = (fields.get("imie") or {}).get("value")
+#     last_name = (fields.get("nazwisko") or {}).get("value")
+
+#     return jsonify({
+#         "candidateId": candidate_id,
+#         "profile": {
+#             "firstName": first_name,
+#             "lastName": last_name,
+#         },
+#         "questionnaireComplete": completion["is_complete"],
+#         "missingFields": completion["missing_fields"],
     }), 200
 
 @candidate_api_bp.route('/cv/status', methods=['GET'])
