@@ -25,7 +25,9 @@ def _resolve_database(client, db_name):
 
 def _ensure_indexes(database):
     database["cvs"].create_index("user_id", unique=True)
+    database["jobs"].create_index("employer_id")
     database["applications"].create_index("employer_id")
+    database["applications"].create_index("job_id")
     database["applications"].create_index([
         ("employer_id", 1),
         ("job_id", 1),

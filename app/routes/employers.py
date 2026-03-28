@@ -11,6 +11,13 @@ applications_collection = db['applications']
 candidates_collection = db['candidates']
 
 
+def _normalize_employer_id(value):
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
 def _find_application_for_employer(employer_id, application_id):
     try:
         object_id = ObjectId(application_id)
@@ -113,10 +120,48 @@ def _safe_candidate_preview(candidate_doc, candidate_id):
         "email": email,
     }
 
+
+def _build_employer_job_item(job_doc, app_docs, candidates_map):
+    job_id = str(job_doc.get("_id")) if job_doc.get("_id") else str(job_doc.get("id") or "")
+
+    applications = []
+    for app_doc in app_docs:
+        candidate_id = app_doc.get("candidate_id")
+        candidate_doc = candidates_map.get(candidate_id)
+        applications.append({
+            "applicationId": str(app_doc.get("_id")),
+            "candidateId": candidate_id,
+            "status": app_doc.get("status", "SENT"),
+            "createdAt": app_doc.get("created_at"),
+            "updatedAt": app_doc.get("updated_at"),
+            "selectedDocuments": app_doc.get("selected_documents", []),
+            "candidate": _safe_candidate_preview(candidate_doc, candidate_id),
+        })
+
+    return {
+        "id": job_id,
+        "title": job_doc.get("title"),
+        "company": job_doc.get("company"),
+        "location": job_doc.get("location"),
+        "category": job_doc.get("category"),
+        "createdAt": job_doc.get("created_at"),
+        "updatedAt": job_doc.get("updated_at"),
+        "applicationsCount": len(applications),
+        "applications": applications,
+    }
+
 @employers_bp.route('/jobs', methods=['GET', 'POST'])
 def jobs():
     if request.method == 'GET':
-        offer_list = list(jobs_collection.find({}))
+        employer_id = _normalize_employer_id(
+            request.args.get("employer_id") or request.args.get("employerId")
+        )
+
+        mongo_filter = {}
+        if employer_id:
+            mongo_filter["employer_id"] = employer_id
+
+        offer_list = list(jobs_collection.find(mongo_filter).sort("_id", -1))
         for offer in offer_list:
             offer['_id'] = str(offer['_id'])
         return jsonify(offer_list), 200
@@ -126,20 +171,94 @@ def jobs():
         if not new_offer or 'title' not in new_offer:
             return jsonify({"error": "Missing title in payload"}), 400
 
-        employer_id = new_offer.get("employer_id") or new_offer.get("employerId")
-        if not isinstance(employer_id, str) or not employer_id.strip():
+        employer_id = _normalize_employer_id(new_offer.get("employer_id") or new_offer.get("employerId"))
+        if not employer_id:
             return jsonify({"error": "Missing employer_id in payload"}), 400
 
-        new_offer["employer_id"] = employer_id.strip()
+        new_offer["employer_id"] = employer_id
         new_offer["created_at"] = new_offer.get("created_at") or now_iso()
         new_offer["updated_at"] = now_iso()
         
         result = jobs_collection.insert_one(new_offer)
         return jsonify({"message": "Job offer created", "id": str(result.inserted_id)}), 201
 
+@employers_bp.route('/<employer_id>/jobs-with-applications', methods=['GET'])
+def get_employer_jobs_with_applications(employer_id):
+    normalized_employer_id = _normalize_employer_id(employer_id)
+    if not normalized_employer_id:
+        return jsonify({"error": "Invalid employer_id"}), 400
+
+    include_empty = request.args.get("includeEmpty", "true").strip().lower() != "false"
+
+    job_docs = list(
+        jobs_collection
+        .find({"employer_id": normalized_employer_id})
+        .sort("created_at", -1)
+    )
+
+    job_ids = [str(job_doc.get("_id")) for job_doc in job_docs if job_doc.get("_id")]
+    apps_by_job = {job_id: [] for job_id in job_ids}
+
+    if job_ids:
+        app_docs = list(
+            applications_collection
+            .find({
+                "employer_id": normalized_employer_id,
+                "job_id": {"$in": job_ids},
+            })
+            .sort("created_at", -1)
+        )
+
+        for app_doc in app_docs:
+            job_id = app_doc.get("job_id")
+            if isinstance(job_id, str) and job_id in apps_by_job:
+                apps_by_job[job_id].append(app_doc)
+
+        candidate_ids = [
+            app_doc.get("candidate_id")
+            for app_doc in app_docs
+            if isinstance(app_doc.get("candidate_id"), str)
+        ]
+        candidate_object_ids = []
+        for candidate_id in candidate_ids:
+            try:
+                candidate_object_ids.append(ObjectId(candidate_id))
+            except Exception:
+                continue
+
+        candidates_map = {}
+        if candidate_object_ids:
+            for candidate_doc in candidates_collection.find({"_id": {"$in": candidate_object_ids}}):
+                candidates_map[str(candidate_doc.get("_id"))] = candidate_doc
+    else:
+        candidates_map = {}
+
+    items = []
+    total_applications = 0
+    for job_doc in job_docs:
+        job_id = str(job_doc.get("_id"))
+        job_apps = apps_by_job.get(job_id, [])
+        if not include_empty and not job_apps:
+            continue
+
+        total_applications += len(job_apps)
+        items.append(_build_employer_job_item(job_doc, job_apps, candidates_map))
+
+    return jsonify({
+        "employerId": normalized_employer_id,
+        "jobsCount": len(items),
+        "applicationsCount": total_applications,
+        "items": items,
+    }), 200
+
+
 @employers_bp.route('/applications/<employer_id>', methods=['GET'])
 def get_employer_applications(employer_id):
-    apps = list(applications_collection.find({"employer_id": employer_id}))
+    normalized_employer_id = _normalize_employer_id(employer_id)
+    if not normalized_employer_id:
+        return jsonify({"error": "Invalid employer_id"}), 400
+
+    apps = list(applications_collection.find({"employer_id": normalized_employer_id}))
     for a in apps:
         a['_id'] = str(a['_id'])
     return jsonify(apps), 200
@@ -147,19 +266,23 @@ def get_employer_applications(employer_id):
 
 @employers_bp.route('/applications/<employer_id>/job/<job_id>', methods=['GET'])
 def get_job_applicants(employer_id, job_id):
+    normalized_employer_id = _normalize_employer_id(employer_id)
+    if not normalized_employer_id:
+        return jsonify({"error": "Invalid employer_id"}), 400
+
     job_doc = _resolve_job(job_id)
     if not job_doc:
         return jsonify({"error": "Job not found"}), 404
 
-    job_employer_id = job_doc.get("employer_id")
-    if str(job_employer_id) != str(employer_id):
+    job_employer_id = _normalize_employer_id(job_doc.get("employer_id") or job_doc.get("employerId"))
+    if str(job_employer_id) != str(normalized_employer_id):
         return jsonify({"error": "Job does not belong to employer"}), 403
 
     normalized_job_id = str(job_doc.get("_id")) if job_doc.get("_id") else str(job_id)
     app_docs = list(
         applications_collection
         .find({
-            "employer_id": employer_id,
+            "employer_id": normalized_employer_id,
             "job_id": normalized_job_id,
         })
         .sort("created_at", -1)
@@ -197,7 +320,7 @@ def get_job_applicants(employer_id, job_id):
         })
 
     return jsonify({
-        "employerId": employer_id,
+        "employerId": normalized_employer_id,
         "job": {
             "id": normalized_job_id,
             "title": job_doc.get("title"),
